@@ -26,3 +26,9 @@ Description:
   * A mini lighting engine for rendering part surfaces is now added and functional in real-time!
     * This supports multiple lighting options you now have control over in Shadow script!
   * Shadows are now Surface-Gui based for more optimal results.
+
+
+## Getting Started:
+  ### Installing the engine
+    1. First, copy the Shadow_Modules.rbxmx file.
+    2. If you plan on using the engine locally, * right click *
