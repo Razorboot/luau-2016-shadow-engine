@@ -3,6 +3,7 @@
 	Created By: Razorboot
 	Last Modified: 12/3/22
 	Description: 
+		- KEEP IN MIND, this is meant to be used with the other modules in the RBXL file.
 		- An attempt at an optimized raycasted shadow-polygon implementation. 
 		- This is a complex set of object oriented mini-classes and polygonal algorithms for:
 			- accurate n-gon to triangle conversion,
