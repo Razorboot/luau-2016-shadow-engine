@@ -1,9 +1,8 @@
 # Roblox-2016-Shadow-Engine
 
 ## Description:
-Built off of: https://scriptinghelpers.org/guides/silhouettes-and-shadows
+Built off of Egomooses Shadow Silhouttes Tutorial: https://scriptinghelpers.org/guides/silhouettes-and-shadows
 Created By: Razorboot
-Last Modified: 12/3/22
 Description: 
   * An attempt at an optimized raycasted shadow-polygon implementation. 
   * This is a complex set of object oriented mini-classes and polygonal algorithms for:
@@ -20,7 +19,7 @@ Description:
   * Manifold data-structure system was inspired by collision manifolds in AABB physics.
       This implementation is classless and includes nested arrays as a form of orginization.
 
-New Changes:
+## New Changes as of 12/3/22:
   * I can confidently say that, in the realm of cube-shapes parts, the current engine is complete!
   * Complex multi-surface shadows supported.
   * Rotated parts (occluders and canvases) now supported.
