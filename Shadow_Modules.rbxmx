@@ -1,9 +1,19 @@
---[[
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
+	<External>null</External>
+	<External>nil</External>
+	<Item class="Configuration" referent="RBXF012D0FD37AE465AB56B62F0E42D0B10">
+		<Properties>
+			<string name="Name">Modules</string>
+		</Properties>
+		<Item class="ModuleScript" referent="RBX7BBB7F046EC947BBAAC5602ECC8EEAB2">
+			<Properties>
+				<Content name="LinkedSource"><null></null></Content>
+				<string name="Name">Shadow</string>
+				<ProtectedString name="Source"><![CDATA[--[[
 	Built off of: https://scriptinghelpers.org/guides/silhouettes-and-shadows
 	Created By: Razorboot
 	Last Modified: 12/3/22
 	Description: 
-		- KEEP IN MIND, this is meant to be used with the other modules in the RBXL file.
 		- An attempt at an optimized raycasted shadow-polygon implementation. 
 		- This is a complex set of object oriented mini-classes and polygonal algorithms for:
 			- accurate n-gon to triangle conversion,
@@ -1019,4 +1029,677 @@ end
 
 
 --# Finalize
-return Shadow
+return Shadow]]></ProtectedString>
+			</Properties>
+			<Item class="BoolValue" referent="RBX51C174B8AEB6424E870D7206EF223D53">
+				<Properties>
+					<string name="Name">inDebugMode</string>
+					<bool name="Value">false</bool>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBXD1B5768CDB2A448DA5563A6B364A199D">
+				<Properties>
+					<Content name="LinkedSource"><null></null></Content>
+					<string name="Name">GiftWrapHull</string>
+					<ProtectedString name="Source"><![CDATA[-- Convex hull algorithms implementation
+-- See : http://en.wikipedia.org/wiki/Convex_hull
+
+-- Calculates the signed area
+local function signedArea(p, q, r)
+	local cross = (q.y - p.y) * (r.x - q.x)
+	- (q.x - p.x) * (r.y - q.y)
+	return cross
+end
+
+-- Checks if points p, q, r are oriented counter-clockwise
+local function isCCW(p, q, r) return signedArea(p, q, r) < 0 end
+
+-- Returns the convex hull using Jarvis' Gift wrapping algorithm).
+-- It expects an array of points as input. Each point is defined
+-- as : {x = <value>, y = <value>}.
+-- See : http://en.wikipedia.org/wiki/Gift_wrapping_algorithm
+-- points  : an array of points
+-- returns : the convex hull as an array of points
+local function jarvis_march(points)
+	-- We need at least 3 points
+	local numPoints = #points
+	if numPoints < 3 then return end
+
+	-- Find the left-most point
+	local leftMostPointIndex = 1
+	for i = 1, numPoints do
+		if points[i].x < points[leftMostPointIndex].x then
+			leftMostPointIndex = i
+		end
+	end
+
+	local p = leftMostPointIndex
+	local hull = {} -- The convex hull to be returned
+
+	-- Process CCW from the left-most point to the start point
+	repeat
+		-- Find the next point q such that (p, i, q) is CCW for all i
+		q = points[p + 1] and p + 1 or 1
+		for i = 1, numPoints, 1 do
+			if isCCW(points[p], points[i], points[q]) then q = i end
+		end
+
+		table.insert(hull, points[q]) -- Save q to the hull
+		p = q  -- p is now q for the next iteration
+	until (p == leftMostPointIndex)
+
+	return hull
+end
+
+return {
+	jarvis = jarvis_march
+}]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBXD537259EEA884E71AC9FCA76BE6494F6">
+				<Properties>
+					<Content name="LinkedSource"><null></null></Content>
+					<string name="Name">Triangle</string>
+					<ProtectedString name="Source"><![CDATA[local extra = 0.5;
+ 
+local img = Instance.new("ImageLabel");
+img.BackgroundTransparency = 1;
+img.BorderSizePixel = 0;
+ 
+function dotv2(a, b)
+	return a.x * b.x + a.y * b.y;
+end;
+ 
+function rotateV2(vec, angle)
+	local x = vec.x * math.cos(angle) + vec.y * math.sin(angle);
+	local y = -vec.x * math.sin(angle) + vec.y * math.cos(angle);
+	return Vector2.new(x, y);
+end;
+ 
+function drawTriangle(parent, colour, trans, a, b, c)
+	local edges = {
+		{longest = (c - b), other = (a - b), position = b};
+		{longest = (a - c), other = (b - c), position = c};
+		{longest = (b - a), other = (c - a), position = a};
+	};
+ 
+	table.sort(edges, function(a, b) return a.longest.magnitude > b.longest.magnitude end);
+ 
+	local edge = edges[1];
+	edge.angle = math.acos(dotv2(edge.longest.unit, edge.other.unit));
+	edge.x = edge.other.magnitude * math.cos(edge.angle);
+	edge.y = edge.other.magnitude * math.sin(edge.angle);
+ 
+	local r = edge.longest.unit * edge.x - edge.other;
+	local rotation = math.atan2(r.y, r.x) - math.pi/2;
+ 
+	local tp = -edge.other;
+	local tx = (edge.longest.unit * edge.x) - edge.other;
+	local nz = tp.x * tx.y - tp.y * tx.x;
+ 
+	local tlc1 = edge.position + edge.other;
+	local tlc2 = nz > 0 and edge.position + edge.longest - tx or edge.position - tx;
+ 
+	local tasize = Vector2.new((tlc1 - tlc2).magnitude, edge.y);
+	local tbsize = Vector2.new(edge.longest.magnitude - tasize.x, edge.y);
+ 
+	local center1 = nz <= 0 and edge.position + ((edge.longest + edge.other)/2) or (edge.position + edge.other/2);
+	local center2 = nz > 0 and edge.position + ((edge.longest + edge.other)/2) or (edge.position + edge.other/2);
+ 
+	tlc1 = center1 + rotateV2(tlc1 - center1, rotation);
+	tlc2 = center2 + rotateV2(tlc2 - center2, rotation);
+ 
+	local ta = img:Clone();
+	local tb = img:Clone();
+	ta.Image = "http://roblox.com/asset?id=319692171";
+	tb.Image = "http://roblox.com/asset?id=319692151";
+	ta.Position = UDim2.new(0, tlc1.x, 0, tlc1.y);
+	tb.Position = UDim2.new(0, tlc2.x, 0, tlc2.y);
+	ta.Size = UDim2.new(0, tbsize.x + extra, 0, tbsize.y + extra);
+	tb.Size = UDim2.new(0, tasize.x + extra, 0, tasize.y + extra);
+	ta.ImageTransparency = trans
+	tb.ImageTransparency = trans
+	ta.Rotation = math.deg(rotation);
+	tb.Rotation = ta.Rotation;
+	ta.ImageColor3 = colour;
+	tb.ImageColor3 = colour;
+	ta.Parent = parent;
+	tb.Parent = parent;
+	--print("drawn")
+	return ta, tb
+end;
+
+return drawTriangle;]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX2654DEA1DC9E4A72B8E0FB3B36FFCE3A">
+				<Properties>
+					<Content name="LinkedSource"><null></null></Content>
+					<string name="Name">Polygon</string>
+					<ProtectedString name="Source"><![CDATA[--[[
+	Author: Razorboot, Khan Academy Tutorials
+	Description: A collection of 2D polygon functions.
+--]]
+
+
+--# Point
+local Poly = {}
+
+
+--# Methods
+function Poly.x_intersect(x1, y1, x2, y2, x3, y3, x4, y4)
+	local num = (x1*y2 - y1*x2) * (x3-x4) - (x1-x2) * (x3*y4 - y3*x4);
+	local den = (x1-x2) * (y3-y4) - (y1-y2) * (x3-x4);
+	return num/den;
+end;
+
+function Poly.y_intersect(x1, y1, x2, y2, x3, y3, x4, y4)
+	local num = (x1*y2 - y1*x2) * (y3-y4) -
+		(y1-y2) * (x3*y4 - y3*x4);
+	local den = (x1-x2) * (y3-y4) - (y1-y2) * (x3-x4);
+	return num/den;
+end;
+
+function Poly.clip(inputPolygon, v1, v2)
+	local new_points = {};
+	local new_poly_size = 1;
+	local temp = {};
+	--println("v1: "+ v1);
+	--println("v2: "+ v2);
+
+	-- (ix,iy),(kx,ky) are the co-ordinate values of
+	-- the points
+	--for (local i = 0; i < inputPolygon.length; i++)
+	for i = 1, #inputPolygon, 1 do
+		-- i and k form a line in polygon
+		--local k = (i+1) % inputPolygon.length;
+		--local k = (i+1) % #inputPolygon;
+		local k = i + 1
+		if k > #inputPolygon then k = 1 end
+		local ix, iy = inputPolygon[i][1], inputPolygon[i][2];
+		local kx, ky = inputPolygon[k][1], inputPolygon[k][2];
+
+		--println("i: "+ i + "     k: " + k);
+		--println(ix + " " + iy + ", " + kx + " " + ky);
+		-- Calculating position of first point
+		-- w.r.t. clipper line
+
+		local i_pos = (v2[1]-v1[1]) * (iy-v1[2]) - (v2[2]-v1[2]) * (ix-v1[1]);
+
+		-- Calculating position of second point
+		-- w.r.t. clipper line
+		local k_pos = (v2[1]-v1[1]) * (ky-v1[2]) - (v2[2]-v1[2]) * (kx-v1[1]);
+
+		--println(i_pos);
+		--println(k_pos);
+
+		-- Case 1 : When both points are inside
+		if (i_pos < 0 and k_pos < 0)then
+			--println("CASE 1");
+			--Only second point is added
+			temp = {kx, ky};
+			new_points[new_poly_size] = temp;
+			new_poly_size = new_poly_size + 1;
+		elseif (i_pos >= 0 and k_pos < 0) then -- Case 2: When only first point is outside
+			--println("CASE 2");
+			-- Point of intersection with edge
+			-- and the second point is added
+			temp = {};
+			temp[1] = Poly.x_intersect(v1[1],v1[2],v2[1],v2[2],ix,iy,kx,ky);
+			temp[2] = Poly.y_intersect(v1[1],v1[2],v2[1],v2[2],ix,iy,kx,ky);
+			new_points[new_poly_size] = temp;
+			new_poly_size = new_poly_size + 1;
+
+			temp = {kx, ky};
+			new_points[new_poly_size] = temp;
+			new_poly_size = new_poly_size + 1;
+		elseif (i_pos < 0 and k_pos >= 0) then -- Case 3: When only second point is outside
+			--println("CASE 3");
+			--Only point of intersection with edge is added
+			temp = {};
+			temp[1] = Poly.x_intersect(v1[1],v1[2],v2[1],v2[2],ix,iy,kx,ky);
+			temp[2] = Poly.y_intersect(v1[1],v1[2],v2[1],v2[2],ix,iy,kx,ky);
+			new_points[new_poly_size] = temp;
+			new_poly_size = new_poly_size + 1;
+		else -- Case 4: When both points are outside
+			--println("CASE 4");
+			--No points are added
+		end
+		--println("new_poly_size: "+new_poly_size);
+	end
+
+    --[[
+    -- Copying new points into original array
+    -- and changing the no. of vertices
+    local poly_size = new_poly_size;
+    for (local i = 0; i < poly_size; i++)
+    {
+        poly_points[i][0] = new_points[i][0];
+        poly_points[i][1] = new_points[i][1];
+    }
+    ]]
+
+	--print(unpack(new_points))
+	return new_points;
+end
+
+function Poly.clipAgainst(inputPolygon, clippingPolygon)
+	--println("input: [" + inputPolygon + "]");
+	--println("clipping: [" + clippingPolygon + "]");
+
+	--make sure you dont edit the original polygon
+	local poly = inputPolygon;
+	local testPoly = inputPolygon;
+	--for (var i = 0; i < clippingPolygon.length; i++){
+	for i = 1, #clippingPolygon, 1 do
+		--local k = (i+1) % clippingPolygon.length;
+		local k = i + 1
+		if k > #clippingPolygon then k = 1 end
+
+		--println(clippingPolygon[1]);
+		--println(clippingPolygon[2]);
+		poly = Poly.clip(poly, clippingPolygon[i], clippingPolygon[k]);
+		--[[if testPoly ~= nil then
+			if #testPoly > 0 then
+				poly = testPoly;
+			end
+		end]]
+		--poly = clip(poly, clippingPolygon[1], clippingPolygon[2]);
+		--println("poly: " + poly);
+	end
+	--println("return: "+ poly);
+	return poly;
+end;
+
+function Poly.triangulate(clippedPolygon)
+	--if polygon is already a triangle
+    local listOfTriangles = {};
+	if (#clippedPolygon == 3) then
+		listOfTriangles = {
+			{Vector2.new(clippedPolygon[1][1], clippedPolygon[1][2]),
+			Vector2.new(clippedPolygon[2][1], clippedPolygon[2][2]),
+			Vector2.new(clippedPolygon[3][1], clippedPolygon[3][2])},
+		};
+		return listOfTriangles
+    else
+        --triangulate the polygon
+        listOfTriangles = {};
+        local count = 1;
+		--for(var i = 0; i < clippedPolygon.length-1; i++){
+		for i = 1, #clippedPolygon-2, 1 do
+            local temp = {};
+            temp[1] = clippedPolygon[1];
+            temp[2] = clippedPolygon[i+1];
+			temp[3] = clippedPolygon[i+2];
+			
+            listOfTriangles[count] = temp;
+            count = count + 1;
+        end
+	end
+	--for (var i = 0; i < listOfTriangles.length; i++){
+	local finalTris = {}
+	for i = 1, #listOfTriangles, 1 do
+		local tri = listOfTriangles[i];
+		
+		table.insert(finalTris,{
+			Vector2.new(tri[1][1], tri[1][2]),
+			Vector2.new(tri[2][1], tri[2][2]),
+			Vector2.new(tri[3][1], tri[3][2])
+		})
+        --triangle(tri[0][0], tri[0][1], tri[1][0], tri[1][1], tri[2][0], tri[2][1]);
+	end
+	
+	return finalTris
+end
+
+
+--# Finalize
+return Poly]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="BoolValue" referent="RBX9A13D71789CE40B8AF7C71E42C115068">
+				<Properties>
+					<string name="Name">useLightingProperties</string>
+					<bool name="Value">false</bool>
+				</Properties>
+			</Item>
+			<Item class="NumberValue" referent="RBX0ADC91055EA64120909EBE7D93A53F15">
+				<Properties>
+					<string name="Name">hasShadowBrightness</string>
+					<double name="Value">0.5</double>
+				</Properties>
+			</Item>
+			<Item class="NumberValue" referent="RBX4119D17F78DC4B0D9B7A396BA5053154">
+				<Properties>
+					<string name="Name">hasAmbient</string>
+					<double name="Value">0.25</double>
+				</Properties>
+			</Item>
+		</Item>
+		<Item class="ModuleScript" referent="RBXA4645C8B060A4E27B6BCF3B7F1E6655B">
+			<Properties>
+				<Content name="LinkedSource"><null></null></Content>
+				<string name="Name">BaseFuncs</string>
+				<ProtectedString name="Source"><![CDATA[--[[
+	Created By: Razorboot
+	Last Modified: 11/9/22
+	Description: A collection of essential functions I use when scripting. :p
+--]]
+
+
+--# Point
+local BaseFuncs = {}
+
+
+--# Maths
+function BaseFuncs.Lerp(a, b, dt) -- Move a number to another number by a desired amount (dt). dt goes from 0 to 1.
+	return a + (b - a) * dt
+end
+
+
+--# General
+function BaseFuncs.GetDescendants(object)
+    local descendants = {}
+
+    local function Scan(parent)
+        for _,v in pairs(parent:GetChildren()) do
+            table.insert(descendants, v)
+            Scan(v)
+        end
+    end
+
+    Scan(object)
+    return descendants
+end
+
+function BaseFuncs.GetItemInTable(item, tb)
+    for i, tbItem in pairs(tb) do
+		if item == tbItem then return i, item end
+	end
+end
+
+function BaseFuncs.fastFindFirstChild(loc, name)
+	local success = pcall(function() local obj = loc[name] end)
+	if success then return loc[name] end
+end
+
+
+--# CFrame
+function BaseFuncs.SetPrimaryPartCFrame(primpart, model, desiredcf) -- This function is used to set the CFrame of an entire model.
+	local origprimpartcf = primpart.CFrame
+
+	for i, part in pairs(BaseFuncs.GetDescendants(model)) do
+		if part:IsA("BasePart") then
+			local offset = origprimpartcf:inverse() * part.CFrame
+			part.CFrame = desiredcf * offset
+		end
+	end
+
+	primpart.CFrame = desiredcf
+end
+
+function BaseFuncs.GetSurfaceNormal(Part, Point)
+	local p = Part.CFrame:toObjectSpace(CFrame.new(Point)).p
+	if (math.abs(p.X)>=Part.Size.X/2-.1) then
+		return (Part.CFrame*Vector3.new(p.X/math.abs(p.X),0,0)-Part.CFrame.p)
+	elseif (math.abs(p.Y)>=Part.Size.Y/2-.1) then
+		return (Part.CFrame*Vector3.new(0,p.Y/math.abs(p.Y),0)-Part.CFrame.p)
+	elseif (math.abs(p.Z)>=Part.Size.Z/2-.1) then
+		return (Part.CFrame*Vector3.new(0,0,p.Z/math.abs(p.Z))-Part.CFrame.p)
+	end
+end
+
+
+--# Interpolation
+function BaseFuncs.LerpVec2(a, b, dt) -- Move a Vector2 from one point to another by a desired amount.
+	local ax, ay = BaseFuncs.Lerp(a.x, b.x, dt), BaseFuncs.Lerp(a.y, b.y, dt)
+	return Vector2.new(ax, ay)
+end
+
+function BaseFuncs.LerpVec3(a, b, dt) -- Move a Vector3 from one point to another by a desired amount.
+	local ax, ay, az = BaseFuncs.Lerp(a.x, b.x, dt), BaseFuncs.Lerp(a.y, b.y, dt), BaseFuncs.Lerp(a.z, b.z, dt)
+	return Vector3.new(ax, ay, az)
+end
+
+function BaseFuncs.LerpCF(CFA, CFB, dt) -- Move a CFrame from one point to another by a desired amount.
+	local Ax, Ay, Az, Am11, Am12, Am13, Am21, Am22, Am23, Am31, Am32, Am33 = CFA:components()
+	local Bx, By, Bz, Bm11, Bm12, Bm13, Bm21, Bm22, Bm23, Bm31, Bm32, Bm33 = CFB:components()
+	
+	Ax, Ay, Az = BaseFuncs.Lerp(Ax, Bx, dt), BaseFuncs.Lerp(Ay, By, dt), BaseFuncs.Lerp(Az, Bz, dt)
+	Am11, Am12, Am13 = BaseFuncs.Lerp(Am11, Bm11, dt), BaseFuncs.Lerp(Am12, Bm12, dt), BaseFuncs.Lerp(Am13, Bm13, dt)
+	Am21, Am22, Am23 = BaseFuncs.Lerp(Am21, Bm21, dt), BaseFuncs.Lerp(Am22, Bm22, dt), BaseFuncs.Lerp(Am23, Bm23, dt)
+	Am31, Am32, Am33 = BaseFuncs.Lerp(Am31, Bm31, dt), BaseFuncs.Lerp(Am32, Bm32, dt), BaseFuncs.Lerp(Am33, Bm33, dt)
+	
+	return CFrame.new(Ax, Ay, Az, Am11, Am12, Am13, Am21, Am22, Am23, Am31, Am32, Am33)
+end
+
+
+--# Rays
+function BaseFuncs.CastRay(Origin, Direction, BlackList)
+	local Ray = Ray.new(Origin, Direction)
+	local HitPart, HitPos, HitNorm = nil, nil
+	
+	if BlackList then
+		HitPart, HitPos = workspace:FindPartOnRayWithIgnoreList(Ray, BlackList)
+	else
+		HitPart, HitPos = workspace:FindPartOnRay(Ray)
+	end
+	
+	if HitPart then
+		return {Part = HitPart, Pos = HitPos, Norm = BaseFuncs.GetSurfaceNormal(HitPart, HitPos)}
+	end
+end
+
+
+--# Finalize
+return BaseFuncs]]></ProtectedString>
+			</Properties>
+		</Item>
+		<Item class="ModuleScript" referent="RBX5A4A1760F6E34305B000242AE819C24E">
+			<Properties>
+				<Content name="LinkedSource"><null></null></Content>
+				<string name="Name">Spring</string>
+				<ProtectedString name="Source"><![CDATA[--[[
+	Created By: Razorboot
+	Last Modified: 11/9/22
+	Description: Spring-mass class
+--]]
+
+
+--# Point
+
+local Spring = {}
+Spring.__index = Spring
+
+
+
+--# Methods
+
+function Spring:new()
+    local newSpring = {
+		gravity = 2,
+        k = 2, -- Constant
+        damping = 2, -- constrict spring movement
+        mass = 5, -- heaviness
+        vel = Vector3.new(), -- velocity
+        pos = Vector3.new(), -- origin position
+        anchorPos = Vector3.new(), -- destination position,
+
+		isRopeDrawable = true,
+		ropePart = nil
+    }
+
+    setmetatable(newSpring, Spring)
+    return newSpring
+end
+
+function Spring:update(dt)
+    local springForce = -self.k * (self.pos - self.anchorPos)
+    local dampingForce = self.damping * self.vel
+    local force = springForce --[[+ Vector3.new(self.mass, self.mass, self.mass)]] - dampingForce
+	force = Vector3.new(force.X, springForce.Y - self.mass * self.gravity - dampingForce.Y, force.Z)
+    local acceleration = force/self.mass
+    self.vel = self.vel + acceleration * dt
+    self.pos = self.pos + self.vel * dt
+
+	if self.isRopeDrawable == true then
+		if not self.ropePart then
+			self.ropePart = Instance.new("Part", workspace)
+			self.ropePart.Locked = true
+			self.ropePart.Anchored, self.ropePart.CanCollide = true, false
+			self.ropePart.BrickColor = BrickColor.new("Reddish brown")
+			self.ropePart.FormFactor = Enum.FormFactor.Custom
+			local ropeMeshInstance = Instance.new("SpecialMesh", self.ropePart)
+			ropeMeshInstance.MeshType = Enum.MeshType.Cylinder
+			ropeMeshInstance.Scale = Vector3.new(1, 0.45, 0.45)
+		end
+		
+		self.ropePart.Size = Vector3.new((self.anchorPos - self.pos).magnitude, 0.25, 0.25)
+		self.ropePart.CFrame = CFrame.new(self.pos + ((self.anchorPos - self.pos)*0.5), self.pos) * CFrame.Angles(0, math.rad(90), 0)
+	end
+end
+
+
+
+--# Finalize
+
+return Spring]]></ProtectedString>
+			</Properties>
+		</Item>
+		<Item class="ModuleScript" referent="RBX322B4DB3B9214D75B87BEAC5ABDB702D">
+			<Properties>
+				<Content name="LinkedSource"><null></null></Content>
+				<string name="Name">Triangulator</string>
+				<ProtectedString name="Source"><![CDATA[--[[
+	Created By: I forgot
+	Last Modified: 11/9/22
+	Description: Triangulation module. Allows a triangle to be formed from three selected vertices.
+--]]
+
+
+local Color = BrickColor.new("Really black")
+local Material = Enum.Material.SmoothPlastic
+local Align = "Normal"
+local Thickness = 0.25
+local Tris = {}
+
+
+--# Math references (optimization)
+local vec3 = Vector3.new
+local cf = CFrame.new
+local cfa = CFrame.Angles
+
+local bc = BrickColor.new("Really black")
+local mat = Enum.Material.SmoothPlastic
+
+
+--# Functions
+function spawnTrianglePart(loc)
+	local P = Instance.new("WedgePart")
+	P.Anchored, P.CanCollide, P.Locked = true, false, true
+	P.BrickColor = bc
+	P.Material = mat
+	P.Transparency = 0.5
+	P.FrontSurface = Enum.SurfaceType.SmoothNoOutlines
+	P.BackSurface = Enum.SurfaceType.SmoothNoOutlines
+	P.LeftSurface = Enum.SurfaceType.SmoothNoOutlines
+	P.RightSurface = Enum.SurfaceType.SmoothNoOutlines
+	P.TopSurface = Enum.SurfaceType.SmoothNoOutlines
+	P.BottomSurface = Enum.SurfaceType.SmoothNoOutlines
+	return P
+end
+
+function createDebugPart(posA, posB, loc)
+	local debugPart = Instance.new("Part", loc)
+	debugPart.Locked = true
+	debugPart.Anchored, debugPart.CanCollide = true, false
+	debugPart.BrickColor = BrickColor.new("Toothpaste")
+	debugPart.FormFactor = Enum.FormFactor.Custom
+	local diffPos = (posB - posA)
+	debugPart.Size = vec3(diffPos.magnitude, 0.25, 0.25)
+	debugPart.CFrame = cf(posA + (diffPos*0.5), posA) * cfa(0, math.rad(90), 0)
+	local debugMeshInstance = Instance.new("SpecialMesh", debugPart)
+	debugMeshInstance.MeshType = Enum.MeshType.Cylinder
+	debugMeshInstance.Scale = vec3(1, 0.25, 0.25)
+end
+
+function Tris.drawTriangle(a,b,c,n,loc,debugEnabled)
+	local len_AB = (b - a).magnitude
+	local len_BC = (c - b).magnitude
+	local len_CA = (a - c).magnitude
+
+	if (len_AB > len_BC) and (len_AB > len_CA) then
+		a,c = c,a
+		b,c = c,b
+	elseif (len_CA > len_AB) and (len_CA > len_BC) then
+		a,b = b,a
+		b,c = c,b
+	end
+
+	local dot = (a - b):Dot(c - b)
+	local split = b + (c-b).unit*dot/(c - b).magnitude
+	
+	local xA = Thickness
+	local yA = (split - a).magnitude
+	local zA = (split - b).magnitude
+	
+	local xB = Thickness
+	local yB = (split - a).magnitude
+	local zB = (split - c).magnitude
+
+	local diry = (a - split).unit
+	local dirz = (c - split).unit
+	local dirx = diry:Cross(dirz).unit
+
+	local posA = split + diry*yA/2 - dirz*zA/2
+	local posB = split + diry*yB/2 + dirz*zB/2
+
+	loc = loc or workspace
+	
+	if debugEnabled == true then
+		createDebugPart(a, b, loc)
+		createDebugPart(b, c, loc)
+		createDebugPart(c, a, loc)
+	end
+
+	local partA = spawnTrianglePart(loc)
+	partA.Parent = loc
+	partA.Name = "TrianglePart"
+	partA.Size = vec3(xA,math.min(yA,2048),math.min(zA,2048))
+	local mA = Instance.new("SpecialMesh")
+	mA.MeshType = Enum.MeshType.Wedge
+	mA.Scale = vec3(xA,yA,zA)/partA.Size
+	mA.Scale = vec3(0.002, mA.Scale.Y, mA.Scale.Z)
+	mA.Offset = vec3(-n*(partA.Size.x-xA)/2,0,0)
+	if mA.Scale == vec3(1,1,1) then mA:Destroy() end
+	partA.CFrame = cf(posA.x,posA.y,posA.z, dirx.x,diry.x,dirz.x, dirx.y,diry.y,dirz.y, dirx.z,diry.z,dirz.z)
+	partA.CFrame = partA.CFrame:toWorldSpace(cf(n*math.max(.2,xA)/2,0,0))
+	dirx = dirx * -1
+	dirz = dirz * -1
+	mA.Parent = partA
+
+	local partB = spawnTrianglePart(loc)
+	partB.Parent = loc
+	partB.Name = "TrianglePart"
+	partB.Size = vec3(xB,yB,zB)
+	local mB = Instance.new("SpecialMesh")
+	mB.MeshType = Enum.MeshType.Wedge
+	mB.Scale = vec3(xB,math.min(yB,2048),math.min(zB,2048))/partB.Size
+	mB.Scale = vec3(0.005, mB.Scale.Y, mB.Scale.Z)
+	mB.Offset = vec3(n*(partB.Size.x-xB)/2,0,0)
+	if mB.Scale == vec3(1,1,1) then mB:Destroy() end
+	partB.CFrame = cf(posB.x,posB.y,posB.z, dirx.x,diry.x,dirz.x, dirx.y,diry.y,dirz.y, dirx.z,diry.z,dirz.z)
+	partB.CFrame = partB.CFrame:toWorldSpace(cf(-n*math.max(.2,xB)/2,0,0))
+	mB.Parent = partB
+	
+	partA.Parent = loc
+	partB.Parent = loc
+	
+	return partA,partB
+end 
+
+return Tris]]></ProtectedString>
+			</Properties>
+		</Item>
+	</Item>
+</roblox>
