@@ -30,8 +30,8 @@ Description:
 
 ## Getting Started:
   ### Installing the engine
-    * First, copy the Shadow_Modules.rbxmx file.
-    * If you plan on using the engine locally, *right click*
-      ```lua
-        print("hi")
-      ```
+  * First, copy the Shadow_Modules.rbxmx file.
+  * If you plan on using the engine locally, *right click*
+    ```lua
+      print("hi")
+    ```
