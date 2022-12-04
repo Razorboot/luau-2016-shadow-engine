@@ -1,0 +1,1792 @@
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
+	<External>null</External>
+	<External>nil</External>
+	<Item class="Configuration" referent="RBX9D284CF8A6644D0F8B29557D30670B37">
+		<Properties>
+			<string name="Name">Modules</string>
+		</Properties>
+		<Item class="ModuleScript" referent="RBX27C3797E8D0F477CA8EE3CF64D8A5728">
+			<Properties>
+				<Content name="LinkedSource"><null></null></Content>
+				<string name="Name">Shadow</string>
+				<ProtectedString name="Source"><![CDATA[--[[
+	Built off of: https://scriptinghelpers.org/guides/silhouettes-and-shadows
+	Created By: Razorboot
+	Last Modified: 12/3/22
+	Description: 
+		- An attempt at an optimized raycasted shadow-polygon implementation. 
+		- This is a complex set of object oriented mini-classes and polygonal algorithms for:
+			- accurate n-gon to triangle conversion,
+			- clipped polygons,
+			- multiple light sources,
+			- optimized vertex grabbing,
+			- ray to plane intersection,
+			- rotated shadow occluders and canvases,
+			- world position shadows to 2d space, clipped, triangle-based shadows,
+			- surface-based real-time lighting calculations:
+				- an attempt to make the system appear more well-integrated with shadow engine.
+		- Inspired by early 2000's Shadow Volumes in games like Thief: Deadly Shadows and Doom III.
+		- Manifold data-structure system was inspired by collision manifolds in AABB physics.
+			- This implementation is classless and includes nested arrays as a form of orginization.
+	
+	New Changes:
+		- I can confidently say that, in the realm of cube-shapes parts, the current engine is complete!
+		- Complex multi-surface shadows supported.
+		- Rotated parts (occluders and canvases) now supported.
+		- A mini lighting engine for rendering part surfaces is now added and functional in real-time!
+			- This supports multiple lighting options you now have control over in Shadow script!
+		- Shadows are now Surface-Gui based for more optimal results.
+--]]
+
+
+--# Services
+local Lighting = game:GetService("Lighting")
+
+
+--# Include
+local Modules = script.Parent
+local BaseFuncs = require(Modules:WaitForChild("BaseFuncs")) -- My own library with a collection of modern functions supported for old Roblox.
+local Poly = require(script:WaitForChild("Polygon")) -- My own polygon library for clipping polygons :]
+local Hull = require(script:WaitForChild("GiftWrapHull")) -- Used to order polygon vertices
+local Tris = require(script:WaitForChild("Triangle")) -- Used to create Instances of polygons as ImageLabels
+
+
+--# Math references (optimization)
+local vec3 = Vector3.new
+local vec2 = Vector2.new
+local cf = CFrame.new
+local cfa = CFrame.Angles
+local udim2 = UDim2.new
+local c3 = Color3.new
+
+
+--# Instance References
+local hasShadowColorInstance = script:WaitForChild("hasShadowColor")
+local hasAmbientInstance = script:WaitForChild("hasAmbient")
+local hasShadowBrightnessInstance = script:WaitForChild("hasShadowBrightness")
+local useLightingPropertiesInstance = script:WaitForChild("useLightingProperties")
+local useExperimentalInstance = script:WaitForChild("useExperimental")
+
+
+--# Point
+local Shadow = {}
+
+
+--# Storage components - helps code run faster (less GetDescendants)
+Shadow.AllLightSources = {}
+
+
+--# Misc Variables
+local transparency = 0.5
+local ambient = 0.25
+local useLightingProperties = useLightingPropertiesInstance.Value
+local shadowColor = hasShadowColorInstance.Value
+local shadowColorIsMemberOfLighting = BaseFuncs.hasProperty(Lighting, "ShadowColor")
+
+if hasAmbientInstance.Value >= 0 then ambient = hasAmbientInstance.Value end
+if hasShadowBrightnessInstance.Value >= 0 then transparency = hasShadowBrightnessInstance.Value end
+shadowColor = hasShadowColorInstance.Value
+
+if useLightingProperties == true then
+	ambient = vec3(Lighting.Ambient.r, Lighting.Ambient.g, Lighting.Ambient.b) + vec3(Lighting.OutdoorAmbient.r, Lighting.OutdoorAmbient.g, Lighting.OutdoorAmbient.b)
+	transparency = math.min(math.min(Lighting.Brightness, 5), 1)
+	if shadowColorIsMemberOfLighting then
+		shadowColor = Lighting.ShadowColor
+	end
+end
+	
+	
+--# Local Functions
+
+ 
+-- Vertex Information for unique cases
+local sphereVertices = {}
+table.insert(sphereVertices, {-0.35355335474014, 0.35355335474014, 0} )
+table.insert(sphereVertices, {-0.24999997019768, 0.35355335474014, 0.24999997019768} )
+table.insert(sphereVertices, {0, 0.35355335474014, 0.35355335474014} )
+table.insert(sphereVertices, {-0.35355338454247, 0, -0.35355338454247} )
+table.insert(sphereVertices, {0, 0.49999997019768, 0} )
+table.insert(sphereVertices, {-0.24999997019768, 0.35355335474014, -0.24999997019768} )
+table.insert(sphereVertices, {0.24999997019768, 0.35355335474014, 0.24999997019768} )
+table.insert(sphereVertices, {-0.5, 0, 0} )
+table.insert(sphereVertices, {0, -0.35355335474014, 0.35355335474014} )
+table.insert(sphereVertices, {0.24999997019768, -0.35355335474014, -0.24999997019768} )
+table.insert(sphereVertices, {0, -0.49999997019768, 0} )
+table.insert(sphereVertices, {-0.24999997019768, -0.35355335474014, 0.24999997019768} )
+table.insert(sphereVertices, {0, 0, -0.5} )
+table.insert(sphereVertices, {0.35355338454247, 0, -0.35355338454247} )
+table.insert(sphereVertices, {-0.35355338454247, 0, 0.35355338454247} )
+table.insert(sphereVertices, {0.24999997019768, 0.35355335474014, -0.24999997019768} )
+table.insert(sphereVertices, {0, -0.35355335474014, -0.35355335474014} )
+table.insert(sphereVertices, {0, 0, 0.5} )
+table.insert(sphereVertices, {0, 0.35355335474014, -0.35355335474014} )
+table.insert(sphereVertices, {-0.24999997019768, -0.35355335474014, -0.24999997019768} )
+table.insert(sphereVertices, {0.5, 0, 0} )
+table.insert(sphereVertices, {0.35355338454247, 0, 0.35355338454247} )
+table.insert(sphereVertices, {0.24999997019768, -0.35355335474014, 0.24999997019768} )
+table.insert(sphereVertices, {0.35355335474014, -0.35355335474014, 0} )
+table.insert(sphereVertices, {0.35355335474014, 0.35355335474014, 0} )
+table.insert(sphereVertices, {-0.35355335474014, -0.35355335474014, 0} )
+
+
+--[[----------------------------------------------------------------------------------------------------
+	FUNCTIONS
+--]]----------------------------------------------------------------------------------------------------
+
+
+--# Edge Calculations
+local lefts = {
+	[Enum.NormalId.Top] = Vector3.FromNormalId(Enum.NormalId.Left);
+	[Enum.NormalId.Back] = Vector3.FromNormalId(Enum.NormalId.Left);
+	[Enum.NormalId.Right] = Vector3.FromNormalId(Enum.NormalId.Back);
+	[Enum.NormalId.Bottom] = Vector3.FromNormalId(Enum.NormalId.Right);
+	[Enum.NormalId.Front] = Vector3.FromNormalId(Enum.NormalId.Right);
+	[Enum.NormalId.Left] = Vector3.FromNormalId(Enum.NormalId.Front);
+};	
+
+function getEdgesSphere(part)
+	-- get the corners
+	local size, corners = part.Size, {}
+	for i, vertex in pairs(sphereVertices) do
+		corners[i] = {}
+		corners[i].pos = vec3(vertex[1], vertex[2], vertex[3]) * size
+		corners[i].normal = corners[i].pos.unit * -1
+	end
+	
+	return corners
+end
+
+function getEdges(part)
+    local connects = {}
+
+    -- get the corners
+    local size, corners = part.Size / 2, {}
+    for x = -1, 1, 2 do
+        for y = -1, 1, 2 do
+            for z = -1, 1, 2 do
+                table.insert(corners, (part.CFrame * cf(size * vec3(x, y, z))).p)
+            end
+        end
+    end
+
+    -- get each corner and the surface normals connected to it
+    connects[1] = {}
+    connects[1].corner = corners[1]
+    table.insert(connects[1], {corners[1], corners[2]})
+    table.insert(connects[1], {corners[1], corners[3]})
+    table.insert(connects[1], {corners[1], corners[5]})
+
+    connects[2] = {}
+    connects[2].corner = corners[2]
+    table.insert(connects[2], {corners[2], corners[1]})
+    table.insert(connects[2], {corners[2], corners[4]})
+    table.insert(connects[2], {corners[2], corners[6]})
+
+    connects[3] = {}
+    connects[3].corner = corners[3]
+    table.insert(connects[3], {corners[3], corners[1]})
+    table.insert(connects[3], {corners[3], corners[4]})
+    table.insert(connects[3], {corners[3], corners[7]})    
+
+    connects[4] = {}
+    connects[4].corner = corners[4]
+    table.insert(connects[4], {corners[4], corners[2]})
+    table.insert(connects[4], {corners[4], corners[3]})
+    table.insert(connects[4], {corners[4], corners[8]})
+
+    connects[5] = {}
+    connects[5].corner = corners[5]
+    table.insert(connects[5], {corners[5], corners[1]})
+    table.insert(connects[5], {corners[5], corners[6]})
+    table.insert(connects[5], {corners[5], corners[7]})    
+
+    connects[6] = {}
+    connects[6].corner = corners[6]
+    table.insert(connects[6], {corners[6], corners[8]})
+    table.insert(connects[6], {corners[6], corners[5]})
+    table.insert(connects[6], {corners[6], corners[2]})
+
+    connects[7] = {}
+    connects[7].corner = corners[7]
+    table.insert(connects[7], {corners[7], corners[8]})
+    table.insert(connects[7], {corners[7], corners[5]})
+    table.insert(connects[7], {corners[7], corners[3]})
+
+    connects[8] = {}
+    connects[8].corner = corners[8]
+    table.insert(connects[8], {corners[8], corners[7]})
+    table.insert(connects[8], {corners[8], corners[6]})
+    table.insert(connects[8], {corners[8], corners[4]})
+
+    -- calculate the normal vectos
+    for i, set in ipairs(connects) do
+        for _, corners in ipairs(set) do
+            corners.vector = (corners[1] - corners[2]).unit
+        end
+    end
+
+    return connects
+end
+
+function getCorners(part, sourcePos)
+    local lcorners = {}
+    for k, set in next, getEdges(part) do
+        local passCount = 0
+        -- same calculation as the 2D one
+        for i = 1, 3 do
+            local lightVector = (sourcePos - set.corner).unit
+            local dot = set[i].vector:Dot(lightVector)
+            if dot >= 0 then
+                passCount = passCount + 1
+            end
+        end
+        -- light can't shine on all 3 or none of the surfaces, must be inbetween
+        if passCount > 0 and passCount < 3 then
+            table.insert(lcorners, set.corner)
+        end
+    end
+    return lcorners
+end
+
+function getCornersSphere(part, sourcePos)
+	local lcorners = {}
+	
+	for _, corner in pairs(getEdgesSphere(part)) do
+		local passCount = 0
+	
+		local lightVector = (sourcePos - corner.pos).unit
+        local dot = corner.normal:Dot(lightVector)
+        if dot >= 0 then
+            passCount = passCount + 1
+        end
+		-- light can't shine on all 3 or none of the surfaces, must be inbetween
+        if passCount > 0 --[[and passCount < 1]] then
+        	table.insert(lcorners, corner)
+        end
+	end
+	
+	return lcorners
+end
+
+-- Light Source Functions
+local function isLightSourceIsNearby(light, point, offset)
+	local lightRange = light:FindFirstChild("hasShadowRange")
+	if lightRange then lightRange = lightRange.Value else lightRange = light.Range end
+	
+	if (light.Parent.Position - point).magnitude < (lightRange + offset) then
+		return true
+	end
+end
+
+function Shadow.insertLightSource(light)
+	local rangeInstance = light:FindFirstChild("hasShadowRange")
+	local lRange = light.Range
+	if rangeInstance then 
+		lRange = rangeInstance.Value
+	end
+	
+	table.insert(Shadow.AllLightSources, {
+		instance = light,
+		part = light.Parent,
+		pos = light.Parent.Position,
+		range = lRange,
+		posChanged = false
+	})
+end
+
+function Shadow.removeLightSource(instance)
+	for i, lightManifold in pairs(Shadow.AllLightSources) do
+		if lightManifold.instance == instance then table.remove(Shadow.AllLightSources, i) return end
+	end
+end
+
+function Shadow.getAllLightSources(location)
+	for _, light in pairs(BaseFuncs.GetDescendants(workspace)) do
+		if light:IsA("PointLight") or light:IsA("SpotLight") then
+			Shadow.insertLightSource(light)
+		end
+	end
+end
+
+function Shadow.updateAllLightSources()
+	for i, lightManifold in pairs(Shadow.AllLightSources) do
+		-- Remove light source if the instance does no longer exist
+		if lightManifold.instance == nil then
+			table.remove(Shadow.AllLightSources, i)
+		else
+			-- Update the position of the light source if it's moved
+			if lightManifold.part.Position ~= lightManifold.pos then
+				lightManifold.posChanged = true
+			else
+				lightManifold.posChanged = false
+			end
+			
+			lightManifold.pos = lightManifold.part.Position
+		end
+	end
+end
+
+local function getNearbyLightSources(point, offset)
+	local lightSources = {}
+	offset = offset or 0
+	
+	for i, lightManifold in pairs(Shadow.AllLightSources) do
+		if (lightManifold.part.Position - point).magnitude < (lightManifold.range + offset) then
+			table.insert(lightSources, i)
+		end
+	end
+	
+	return lightSources
+end
+
+
+--# Ray to Plane intersection
+function planeIntersectClipped(point, vector, origin, normal)
+	local rpoint = point - origin;
+	local vecDotNorm = vector:Dot(normal)
+	local rDotNorm = rpoint:Dot(normal)
+	
+	local t = -rDotNorm / vecDotNorm;	
+	if (rDotNorm / vecDotNorm) <= -0.1 then
+		return point + t * vector;
+	end
+end
+
+function planeIntersect(point, vector, origin, normal, overeach)
+	local rpoint = point - origin;
+	local vecDotNorm = vector:Dot(normal)
+	local rDotNorm = rpoint:Dot(normal)
+	
+	local t = -rDotNorm / vecDotNorm;	
+	
+	local hit1 = point + t * vector
+	local hit2 = nil
+	if overeach == true then
+		hit2 = planeIntersectClipped(point + vector * -999999, normal, origin, normal)
+	end
+	if (rDotNorm / vecDotNorm) <= -0.1 then
+		if hit2 == nil then hit1 = nil end
+	end
+	
+	return hit1, hit2;
+end;
+
+function planeProject(point, v, orig, normal)
+	local v = point - orig
+	local dist = v * normal
+	return point - dist * normal
+end
+
+
+--# Implementation Functions
+local function newRootManifold(SurfaceGui)
+	local part = SurfaceGui.Parent
+			
+	-- Root canvas manifold
+	local canvasManifold = {}
+	canvasManifold.part = part
+	canvasManifold.partCF = CFrame.new(part.CFrame:components())
+	canvasManifold.canvas = SurfaceGui
+	
+	-- Each occluder has a manifold that contains relevant light sources and the shadows they cast
+	canvasManifold.occluderManifolds = {}
+	
+	-- Where shadow mesh instances are stored
+	 --[[canvasManifold.instanceStorage = Instance.new("Model", workspace)
+	canvasManifold.instanceStorage.Name = "ShadowStorage_"..part.Name]]
+	canvasManifold.instanceStorage = {}
+	
+	-- Occluder manifolds (nested inside base manifolds)
+	for _, occluderPart in pairs(BaseFuncs.GetDescendants(workspace)) do
+		if occluderPart:IsA("BasePart") and occluderPart:FindFirstChild("isShadowOccluder") and occluderPart ~= canvasManifold.part then
+			-- Create occluder manifold
+			local occluderManifold = {}
+			occluderManifold.occluder = occluderPart
+			occluderManifold.occluderCF = occluderPart.CFrame
+			-- Create manifolds for relative lights and corresponding corners
+			occluderManifold.shadowManifolds = {}
+			local lightSources = getNearbyLightSources(occluderManifold.occluder.Position)
+			
+			for _, li in pairs(lightSources) do
+				local shadowManifold = {}
+				shadowManifold.li = li
+				shadowManifold.brightness = 1
+				shadowManifold.corners = getCorners(occluderManifold.occluder, Shadow.AllLightSources[li].part.Position)
+				shadowManifold.instanceStorage = {}
+				
+				-- Apply current SM to shadowManifolds
+				table.insert(occluderManifold.shadowManifolds, shadowManifold)
+			end
+			
+			-- Apply to pre-existing parent manifold
+			table.insert(canvasManifold.occluderManifolds, occluderManifold)
+		end
+	end
+	
+	-- Parent to root manifolds
+	return canvasManifold
+end
+
+local function getRootManifolds()
+	local rootManifolds = {}
+	
+	for _, instance in pairs(BaseFuncs.GetDescendants(workspace)) do
+		if instance:IsA("SurfaceGui") and instance:FindFirstChild("isShadowCanvas") then
+			local canvasManifold = newRootManifold(instance)
+			
+			-- Parent to root manifolds
+			table.insert(rootManifolds, canvasManifold)
+		end
+	end
+	
+	for _, instance in pairs(BaseFuncs.GetDescendants(workspace.CurrentCamera)) do
+		if instance:IsA("SurfaceGui") and instance:FindFirstChild("isShadowCanvas") then
+			local canvasManifold = newRootManifold(instance)
+			
+			-- Parent to root manifolds
+			table.insert(rootManifolds, canvasManifold)
+		end
+	end
+	
+	return rootManifolds
+end
+
+
+--# Custom shading on part surfaces
+local function newLitCanvases(part)
+	-- Declare the manifold
+	local partManifold = {}
+	
+	-- Attributes
+	partManifold.canvasManifolds = {}
+	partManifold.part = part
+	partManifold.partCF = part.CFrame
+	
+	local lightSources = getNearbyLightSources(part.Position, part.Size.magnitude)
+	partManifold.lightSources = {}
+	
+	for _, li in pairs(lightSources) do
+		table.insert(partManifold.lightSources, li)
+	end
+	
+	-- Create SurfaceGui for each Surface for lighting
+	for ni, normalId in pairs(lefts) do
+		local newCanvas = Instance.new("SurfaceGui")
+		newCanvas.CanvasSize = vec2(1, 1)
+		newCanvas.Face = ni
+		newCanvas.Parent = part
+		
+		local frame = Instance.new("Frame")
+		frame.BackgroundColor3 = shadowColor
+		frame.Size = udim2(1, 0, 1, 0)
+		frame.Parent = newCanvas
+		frame.BorderSizePixel = 0
+		
+		local sid = newCanvas.Face
+		local lnormal = Vector3.FromNormalId(sid)
+		local normal = partManifold.part.CFrame:vectorToWorldSpace(lnormal)
+		local origin = partManifold.part.Position + normal * (lnormal * partManifold.part.Size/2).magnitude
+		
+		table.insert(partManifold.canvasManifolds, {
+			canvas = newCanvas,
+			cover = frame,
+			canvasWorldSpace = origin
+		})
+	end
+	
+	-- Finalize
+	return partManifold
+end
+
+local function getLitPartManifolds()
+	-- Declare the manifold
+	local litPartManifolds = {}
+	
+	-- Generate ALL manifolds
+	for _, instance in pairs(BaseFuncs.GetDescendants(workspace)) do
+		if instance:FindFirstChild("hasLitSurfaces") then
+			table.insert(litPartManifolds, newLitCanvases(instance))
+		end
+	end
+	
+	for _, instance in pairs(BaseFuncs.GetDescendants(workspace.CurrentCamera)) do
+		if instance:FindFirstChild("hasLitSurfaces") then
+			table.insert(litPartManifolds, newLitCanvases(instance))
+		end
+	end
+	
+	-- Finalize
+	return litPartManifolds
+end
+
+local function updateLitPartManifolds(litPartManifolds, onChange)
+	for pi, partManifold in pairs(litPartManifolds) do
+		-- Re-create world space pos if the part CFrame changes
+		local posChanged = false
+		if onChange == true then
+			if partManifold.partCF ~= partManifold.part.CFrame then
+				posChanged = true
+			end
+		else
+			posChanged = true
+		end
+		
+		if posChanged then
+			partManifold.partCF = partManifold.part.CFrame
+			--print("CF changed")
+			for ci, canvasManifold in pairs(partManifold.canvasManifolds) do 
+				local sid = canvasManifold.canvas.Face
+				local lnormal = Vector3.FromNormalId(sid)
+				local normal = partManifold.part.CFrame:vectorToWorldSpace(lnormal)
+				local origin = partManifold.part.Position + normal * (lnormal * partManifold.part.Size/2).magnitude
+
+				litPartManifolds[pi].canvasManifolds[ci].normal = normal
+				litPartManifolds[pi].canvasManifolds[ci].canvasWorldSpace = origin
+			end
+		end
+		
+		-- Detect and reset lights if the position between a lightsource and the part has changed
+		local lightPosChanged = false
+		
+		--[[for li, lightSource in pairs(partManifold.lightSources) do
+			if onChange == true then
+				if (lightSource.pos ~= lightSource.part.Position) then
+					lightPosChanged = true
+					break
+				end
+			else
+				lightPosChanged = true
+			end
+		end]]
+		
+		for _, li in pairs(partManifold.lightSources) do
+			if Shadow.AllLightSources[li].posChanged == true then lightPosChanged = true break end
+		end
+		
+		if posChanged == true or lightPosChanged == true then
+			--[[local lightSources = getNearbyLightSources(partManifold.part.Position, partManifold.part.Size.magnitude)
+			litPartManifolds[pi].lightSources = {}
+			for _, ls in pairs(lightSources) do
+				table.insert(partManifold.lightSources, {
+					part = ls.Parent,
+					pos = ls.Parent.Position,
+					light = ls,
+					dist = (ls.Parent.Position - partManifold.part.Position)
+				})
+			end]]
+			
+			litPartManifolds[pi].lightSources = {}
+			for _, li in pairs(getNearbyLightSources(partManifold.part.Position, partManifold.part.Size.magnitude)) do
+				table.insert(litPartManifolds[pi].lightSources, li)
+			end
+	
+		end
+		
+		-- re-calculate all of the lighting
+		for ci, canvasManifold in pairs(partManifold.canvasManifolds) do 
+			local accumulatedBrightness = 1
+			
+			if posChanged == true or lightPosChanged == true then
+				local canvasWorldSpace = litPartManifolds[pi].canvasManifolds[ci].canvasWorldSpace
+				
+				for _, li in pairs(partManifold.lightSources) do
+					local lightSource = Shadow.AllLightSources[li]
+					
+					local v = (lightSource.pos - canvasManifold.canvasWorldSpace).unit
+					local brightness = math.max(0, canvasManifold.normal:Dot(v))
+					
+					accumulatedBrightness = (1 - accumulatedBrightness) + ambient + (brightness * (1 - (transparency) ))
+				end
+				--print(accumulatedBrightness)
+				litPartManifolds[pi].canvasManifolds[ci].cover.BackgroundTransparency = accumulatedBrightness
+			end
+			
+			litPartManifolds[pi].canvasManifolds[ci].cover.BackgroundColor3 = shadowColor
+		end
+		
+	end
+	
+	
+	-- Finalize
+	return litPartManifolds
+end
+
+
+--# ShadowMesh Creation
+function getTopLeft(hit, sid)
+	local lnormal = Vector3.FromNormalId(sid)
+	local cf = hit.CFrame + (hit.CFrame:vectorToWorldSpace(lnormal * (hit.Size/2)));
+	local modi = (sid == Enum.NormalId.Top or sid == Enum.NormalId.Bottom) and -1 or 1;
+	local left = lefts[sid];
+	local up = modi * left:Cross(lnormal);
+	local tlcf = cf + hit.CFrame:vectorToWorldSpace((up + left) * hit.Size/2);
+	return tlcf, Vector2.new((left * hit.Size).magnitude, (up * hit.Size).magnitude),
+			hit.CFrame:vectorToWorldSpace(-left),
+			hit.CFrame:vectorToWorldSpace(-up), modi;
+end;
+
+function isOvereached(normal, highestPoint, lowestPoint, point)
+	if not highestPoint or not lowestPoint then return false end	
+		
+	local projHighestPoint = highestPoint
+	local projlowestPoint = lowestPoint
+	local projLightPos = normal * point
+
+	local xMet = false
+	local yMet = false
+	local zMet = false		
+	
+	if (projLightPos.x >= projlowestPoint.x) and (projLightPos.x <= projHighestPoint.x) then xMet = true end
+	if (projLightPos.y >= projlowestPoint.y) and (projLightPos.y <= projHighestPoint.y) then yMet = true end
+	if (projLightPos.z >= projlowestPoint.z) and (projLightPos.z <= projHighestPoint.y) then zMet = true end
+	--[[print(tostring("highest: ")..projlowestPoint.y)
+	print(tostring("light: ")..projLightPos.y)]]
+	--print((projLightPos.y >= projlowestPoint.y))
+	--print("---------------------")
+	if (xMet == true and yMet == true and zMet == true) then return true else return false end
+end
+
+function createShadowMesh(shadowManifold, canvasManifold)
+	-- Clean up old Instances
+	for _, tri in pairs(shadowManifold.instanceStorage) do
+		tri:Destroy()
+	end
+	shadowManifold.instanceStorage = {}
+	
+	-- Variables
+	local sid = canvasManifold.canvas.Face;
+	local lnormal = Vector3.FromNormalId(sid);
+	local normal = canvasManifold.part.CFrame:vectorToWorldSpace(lnormal);
+	local origin = canvasManifold.part.Position + normal * (lnormal * canvasManifold.part.Size/2).magnitude;
+	local tlc, size, right, down, modi = getTopLeft(canvasManifold.part, sid);
+	local noPos = false
+	local lightPos = Shadow.AllLightSources[shadowManifold.li].part.Position
+	
+	local points = {}
+	
+	local overeach = false
+	if useExperimentalInstance.Value == true then
+		local highestPoint, lowestPoint
+		for _, corner in pairs(shadowManifold.corners) do
+			local cornerMultNorm = corner * normal
+			
+			if highestPoint and lowestPoint then
+				if cornerMultNorm.x > highestPoint.x or cornerMultNorm.y > highestPoint.y or cornerMultNorm.z > highestPoint.z then
+					highestPoint = cornerMultNorm
+				end
+				if cornerMultNorm.x < lowestPoint.x or cornerMultNorm.y < lowestPoint.y or cornerMultNorm.z < lowestPoint.z then
+					lowestPoint = cornerMultNorm
+				end
+			end
+			
+			if not highestPoint and not lowestPoint then
+				highestPoint, lowestPoint = cornerMultNorm, cornerMultNorm
+			end
+		end
+		overeach = isOvereached(normal, highestPoint, lowestPoint, lightPos)
+	end
+	
+	for _, corner in next, shadowManifold.corners do
+		local lightVector = (lightPos - corner).unit
+		local dot = normal:Dot(lightVector)
+		
+		-- Only render shadows for surface if it can be seen from the light source
+		if dot >= 0 then
+			--local pos = planeProject(corner, lightVector, origin, normal, overeach)
+			local pos, pos2 = planeIntersect(corner, lightVector, origin, normal, overeach)
+			
+			if pos then 
+				noPos = true
+				
+				local relative = pos - tlc.p;
+				local x, y = right:Dot(relative)/size.x, down:Dot(relative)/size.y;
+				x, y = modi < 1 and y or x, modi < 1 and x or y;
+				
+				local csize = canvasManifold.canvas.CanvasSize;
+				local absPosition = Vector2.new(x * csize.x, y * csize.y);		
+				
+				table.insert(points, absPosition);
+			end
+			
+			if pos2 then 
+				noPos = true
+				
+				local relative = pos2 - tlc.p;
+				local x, y = right:Dot(relative)/size.x, down:Dot(relative)/size.y;
+				x, y = modi < 1 and y or x, modi < 1 and x or y;
+				
+				local csize = canvasManifold.canvas.CanvasSize;
+				local absPosition = Vector2.new(x * csize.x, y * csize.y);		
+				
+				table.insert(points, absPosition);
+			end
+			
+		end
+	end;
+	
+	if #points > 2 then	
+		local guiSize = canvasManifold.canvas.CanvasSize
+		local clippingRect = {
+			{guiSize.x, guiSize.y},
+			{guiSize.x, 0},
+			{0, 0},
+			{0, guiSize.y}
+		}
+		
+		local newPoints = Hull.jarvis(points)
+		for i, np in pairs(newPoints) do
+			newPoints[i] = {np.x, np.y}
+		end
+		newPoints = Poly.clipAgainst(newPoints, clippingRect)
+		
+		local finalTris = {}
+		
+		if #newPoints > 0 then
+			finalTris = Poly.triangulate(newPoints)
+		
+			for i, t in pairs(finalTris) do
+				if t[1] and t[2] and t[3] then
+					local ta, tb = Tris(canvasManifold.canvas, shadowColor, transparency, unpack(t))
+					table.insert(shadowManifold.instanceStorage, ta);
+					table.insert(shadowManifold.instanceStorage, tb);
+				end
+			end
+		end
+	end
+	
+	return shadowManifold
+end
+
+
+--# Final collected functions
+function Shadow.getRootManifolds()
+	return getRootManifolds()
+end
+
+function Shadow.createAllShadowMeshes(rootManifolds)
+	for ci, canvasManifold in pairs(rootManifolds) do
+		for oi, occluderManifold in pairs(canvasManifold.occluderManifolds) do
+			for si, shadowManifold in pairs(occluderManifold.shadowManifolds) do
+				shadowManifold = createShadowMesh(shadowManifold, canvasManifold)
+			end
+		end
+	end
+	
+	--return rootManifolds
+end
+local num1 = 0
+function Shadow.updateRootManifolds(rootManifolds)
+	-- Update the lighting value settings
+	if hasAmbientInstance.Value >= 0 then ambient = hasAmbientInstance.Value end
+	if hasShadowBrightnessInstance.Value >= 0 then transparency = hasShadowBrightnessInstance.Value end
+	shadowColor = hasShadowColorInstance.Value
+	
+	if useLightingProperties == true then
+		ambient = vec3(Lighting.Ambient.r, Lighting.Ambient.g, Lighting.Ambient.b) + vec3(Lighting.OutdoorAmbient.r, Lighting.OutdoorAmbient.g, Lighting.OutdoorAmbient.b)
+		transparency = math.min(math.min(Lighting.Brightness, 5), 1)
+		if shadowColorIsMemberOfLighting then
+			shadowColor = Lighting.ShadowColor
+		end
+	end
+
+	-- Interate through manifolds
+	for ci, canvasManifold in pairs(rootManifolds) do
+		-- Re-compute ENTIRE shadow manifold if canvas position changes.
+		--[[print(tostring(canvasManifold.part.CFrame.x)..", "..tostring(canvasManifold.part.CFrame.y)..", "..tostring(canvasManifold.part.CFrame.z))
+		print(tostring(canvasManifold.partCF.x)..", "..tostring(canvasManifold.partCF.y)..", "..tostring(canvasManifold.partCF.z))
+		print("------------------------------------------------------------------------------------------")]]
+		
+		-- Update ONLY if part CF changed
+		if canvasManifold.part.CFrame ~= canvasManifold.partCF then
+			-- Delete old instance storage
+			for _, instance in pairs(canvasManifold.canvas:GetChildren()) do
+				if (not instance:IsA("BoolValue")) and (not instance:IsA("StringValue")) and (not instance:IsA("Frame")) then
+					instance:Destroy()
+				end
+			end
+			
+			-- Remake the entire canvas manifold.
+			rootManifolds[ci] = newRootManifold(canvasManifold.canvas)
+			
+			-- Re-render shadows
+			for oi, occluderManifold in pairs(canvasManifold.occluderManifolds) do
+				for si, shadowManifold in pairs(occluderManifold.shadowManifolds) do
+					rootManifolds[ci].occluderManifolds[oi].shadowManifolds[si] = createShadowMesh(shadowManifold, canvasManifold)
+				end
+			end
+		else
+			for oi, occluderManifold in pairs(canvasManifold.occluderManifolds) do
+				-- Re-compute ALL shadow manifolds if the occluder has changed position or rotation.
+				if occluderManifold.occluder.CFrame ~= occluderManifold.occluderCF then
+					occluderManifold.occluderCF = occluderManifold.occluder.CFrame
+					
+					-- Delete old instance storage
+					for si, shadowManifold in pairs(occluderManifold.shadowManifolds) do
+						for _, instance in pairs(shadowManifold.instanceStorage) do
+							instance:Destroy()
+						end 
+						shadowManifold.instanceStorage = {}
+					end
+					
+					-- Actual re-computation of shadow manifolds
+					occluderManifold.shadowManifolds = {}
+					--[[local lightSources = getNearbyLightSources(occluderManifold.occluder.Position)
+					
+					for _, light in pairs(lightSources) do
+						local lightPart = light.Parent
+						local shadowManifold = {}
+						shadowManifold.lightPart = lightPart
+						shadowManifold.lightPos = lightPart.Position
+						shadowManifold.lightNum = #lightSources
+						shadowManifold.corners = getCorners(occluderManifold.occluder, lightPart.Position)
+						shadowManifold.instanceStorage = {}
+						table.insert(occluderManifold.shadowManifolds, shadowManifold)
+					end]]
+					local lightSources = getNearbyLightSources(occluderManifold.occluder.Position)
+			
+					for _, li in pairs(lightSources) do
+						local shadowManifold = {}
+						shadowManifold.li = li
+						shadowManifold.brightness = 1
+						shadowManifold.corners = getCorners(occluderManifold.occluder, Shadow.AllLightSources[li].part.Position)
+						shadowManifold.instanceStorage = {}
+						
+						-- Apply current SM to shadowManifolds
+						table.insert(occluderManifold.shadowManifolds, shadowManifold)
+					end
+					
+					-- Re-render shadows
+					for si, shadowManifold in pairs(occluderManifold.shadowManifolds) do
+						shadowManifold = createShadowMesh(shadowManifold, canvasManifold)
+					end
+				end
+				
+				-- Re-compute SPECIFIC shadow manifold if light position changes
+				for si, shadowManifold in pairs(occluderManifold.shadowManifolds) do
+					--local lightPos = Shadow.AllLightSources[shadowManifold.li].pos
+					
+					if Shadow.AllLightSources[shadowManifold.li].posChanged == true then
+						
+						-- Delete old instance storage
+						for _, instance in pairs(shadowManifold.instanceStorage) do
+							instance:Destroy()
+						end 
+						shadowManifold.instanceStorage = {}
+						
+						--[[ Update shadow manifold variables
+						shadowManifold.lightPos = shadowManifold.lightPart.Position]]
+						shadowManifold.corners = getCorners(occluderManifold.occluder, Shadow.AllLightSources[shadowManifold.li].pos)
+						shadowManifold.instanceStorage = {}
+						
+						-- Re-render shadow for specific manifold
+						shadowManifold = createShadowMesh(shadowManifold, canvasManifold)
+						
+						-- Apply shadow manifold
+						occluderManifold.shadowManifolds[si] = shadowManifold
+					end
+				end
+				
+				-- Apply global occluder manifold
+				rootManifolds[ci].occluderManifold = occluderManifold
+			end
+		end
+	end
+	
+	return rootManifolds
+end
+
+function Shadow.getLitPartManifolds()
+	return getLitPartManifolds()
+end
+
+function Shadow.updateLitPartManifolds(manifolds)
+	return updateLitPartManifolds(manifolds)
+end
+
+function Shadow.lightPartManifolds(litPartManifolds)
+	return updateLitPartManifolds(litPartManifolds, false)
+end
+
+
+--# Utility functions - making parts occluders
+function scanForSurfaceGuiSide(location, face)
+	for _, gui in pairs(location:GetChildren()) do
+		if gui:IsA("SurfaceGui") then
+			if gui.Face == face and gui:FindFirstChild("isShadowCanvas") then return true end
+		end
+	end
+end
+
+function newFuncSurfaceGui(location, face, bool)
+	local surfaceGui = Instance.new("SurfaceGui", location)
+	surfaceGui.Name = "ShadowCanvasGui"
+	surfaceGui.CanvasSize = Vector2.new(10000, 10000)
+	surfaceGui.Face = face
+	local boolVal = Instance.new("BoolValue", surfaceGui)
+	boolVal.Name = "isShadowCanvas"
+	boolVal.Value = bool
+end
+
+function Shadow.setPartProperty(part, property, bool)
+	if part:IsA("BasePart") then
+		if type(bool) ~= "table" then
+			if property ~= "isShadowCanvasAll" and property ~= "isShadowCanvasLeft" and property ~= "isShadowCanvasRight" and property ~= "isShadowCanvasTop" and property ~= "isShadowCanvasBottom" and property ~= "isShadowCanvasFront" and property ~= "isShadowCanvasBack" then
+				local propVal = part:FindFirstChild(property)
+				
+				if bool == false then
+					if propVal then
+						propVal:Destroy()
+					end
+				else
+					if not propVal then
+						propVal = Instance.new("BoolValue", part)
+						propVal.Name = property
+					end
+				end
+				
+			else
+				if property == "isShadowCanvasAll" then
+					for face, vec in pairs(lefts) do
+						local relativeGui = scanForSurfaceGuiSide(part, face)
+						if relativeGui then relativeGui.Value = bool else newFuncSurfaceGui(part, face, bool) end
+					end
+				elseif property == "isShadowCanvasTop" then
+					local face = Enum.NormalId.Top
+					local relativeGui = scanForSurfaceGuiSide(part, face)
+					if relativeGui then relativeGui.Value = bool else newFuncSurfaceGui(part, face, bool) end
+				elseif property == "isShadowCanvasBottom" then
+					local face = Enum.NormalId.Bottom
+					local relativeGui = scanForSurfaceGuiSide(part, face)
+					if relativeGui then relativeGui.Value = bool else newFuncSurfaceGui(part, face, bool) end
+				elseif property == "isShadowCanvasRight" then
+					local face = Enum.NormalId.Right
+					local relativeGui = scanForSurfaceGuiSide(part, face)
+					if relativeGui then relativeGui.Value = bool else newFuncSurfaceGui(part, face, bool) end
+				elseif property == "isShadowCanvasLeft" then
+					local face = Enum.NormalId.Left
+					local relativeGui = scanForSurfaceGuiSide(part, face)
+					if relativeGui then relativeGui.Value = bool else newFuncSurfaceGui(part, face, bool) end
+				elseif property == "isShadowCanvasFront" then
+					local face = Enum.NormalId.Front
+					local relativeGui = scanForSurfaceGuiSide(part, face)
+					if relativeGui then relativeGui.Value = bool else newFuncSurfaceGui(part, face, bool) end
+				elseif property == "isShadowCanvasBack" then
+					local face = Enum.NormalId.Back
+					local relativeGui = scanForSurfaceGuiSide(part, face)
+					if relativeGui then relativeGui.Value = bool else newFuncSurfaceGui(part, face, bool) end
+				end
+			end
+		end
+	end
+end
+
+function Shadow.setModelProperty(model, property, bool)
+	for _, part in pairs(BaseFuncs.GetDescendants(model)) do
+		Shadow.setPartProperty(part, property, bool)
+	end
+end
+
+
+--# Misc Functions
+function Shadow.updateDescendants(location)
+	Shadow.allDescendants = {}
+	for _, part in pairs(BaseFuncs.GetDescendants(location)) do
+		if part:IsA("BasePart") then table.insert(Shadow.allDescendants, part) end
+	end
+end
+
+
+--# Finalize
+return Shadow]]></ProtectedString>
+			</Properties>
+			<Item class="ModuleScript" referent="RBXCC2480DE27FA4C3D83AFC41389BA8760">
+				<Properties>
+					<Content name="LinkedSource"><null></null></Content>
+					<string name="Name">GiftWrapHull</string>
+					<ProtectedString name="Source"><![CDATA[-- Convex hull algorithms implementation
+-- See : http://en.wikipedia.org/wiki/Convex_hull
+
+-- Calculates the signed area
+local function signedArea(p, q, r)
+	local cross = (q.y - p.y) * (r.x - q.x)
+	- (q.x - p.x) * (r.y - q.y)
+	return cross
+end
+
+-- Checks if points p, q, r are oriented counter-clockwise
+local function isCCW(p, q, r) return signedArea(p, q, r) < 0 end
+
+-- Returns the convex hull using Jarvis' Gift wrapping algorithm).
+-- It expects an array of points as input. Each point is defined
+-- as : {x = <value>, y = <value>}.
+-- See : http://en.wikipedia.org/wiki/Gift_wrapping_algorithm
+-- points  : an array of points
+-- returns : the convex hull as an array of points
+local function jarvis_march(points)
+	-- We need at least 3 points
+	local numPoints = #points
+	if numPoints < 3 then return end
+
+	-- Find the left-most point
+	local leftMostPointIndex = 1
+	for i = 1, numPoints do
+		if points[i].x < points[leftMostPointIndex].x then
+			leftMostPointIndex = i
+		end
+	end
+
+	local p = leftMostPointIndex
+	local hull = {} -- The convex hull to be returned
+
+	-- Process CCW from the left-most point to the start point
+	repeat
+		-- Find the next point q such that (p, i, q) is CCW for all i
+		q = points[p + 1] and p + 1 or 1
+		for i = 1, numPoints, 1 do
+			if isCCW(points[p], points[i], points[q]) then q = i end
+		end
+
+		table.insert(hull, points[q]) -- Save q to the hull
+		p = q  -- p is now q for the next iteration
+	until (p == leftMostPointIndex)
+
+	return hull
+end
+
+return {
+	jarvis = jarvis_march
+}]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX7E7AB1974EA545F98BFD8CDBEE812D9E">
+				<Properties>
+					<Content name="LinkedSource"><null></null></Content>
+					<string name="Name">Triangle</string>
+					<ProtectedString name="Source"><![CDATA[local extra = 0.5;
+ 
+local img = Instance.new("ImageLabel");
+img.BackgroundTransparency = 1;
+img.BorderSizePixel = 0;
+ 
+function dotv2(a, b)
+	return a.x * b.x + a.y * b.y;
+end;
+ 
+function rotateV2(vec, angle)
+	local x = vec.x * math.cos(angle) + vec.y * math.sin(angle);
+	local y = -vec.x * math.sin(angle) + vec.y * math.cos(angle);
+	return Vector2.new(x, y);
+end;
+ 
+function drawTriangle(parent, colour, trans, a, b, c)
+	local edges = {
+		{longest = (c - b), other = (a - b), position = b};
+		{longest = (a - c), other = (b - c), position = c};
+		{longest = (b - a), other = (c - a), position = a};
+	};
+ 
+	table.sort(edges, function(a, b) return a.longest.magnitude > b.longest.magnitude end);
+ 
+	local edge = edges[1];
+	edge.angle = math.acos(dotv2(edge.longest.unit, edge.other.unit));
+	edge.x = edge.other.magnitude * math.cos(edge.angle);
+	edge.y = edge.other.magnitude * math.sin(edge.angle);
+ 
+	local r = edge.longest.unit * edge.x - edge.other;
+	local rotation = math.atan2(r.y, r.x) - math.pi/2;
+ 
+	local tp = -edge.other;
+	local tx = (edge.longest.unit * edge.x) - edge.other;
+	local nz = tp.x * tx.y - tp.y * tx.x;
+ 
+	local tlc1 = edge.position + edge.other;
+	local tlc2 = nz > 0 and edge.position + edge.longest - tx or edge.position - tx;
+ 
+	local tasize = Vector2.new((tlc1 - tlc2).magnitude, edge.y);
+	local tbsize = Vector2.new(edge.longest.magnitude - tasize.x, edge.y);
+ 
+	local center1 = nz <= 0 and edge.position + ((edge.longest + edge.other)/2) or (edge.position + edge.other/2);
+	local center2 = nz > 0 and edge.position + ((edge.longest + edge.other)/2) or (edge.position + edge.other/2);
+ 
+	tlc1 = center1 + rotateV2(tlc1 - center1, rotation);
+	tlc2 = center2 + rotateV2(tlc2 - center2, rotation);
+ 
+	local ta = img:Clone();
+	local tb = img:Clone();
+	ta.Image = "http://roblox.com/asset?id=319692171";
+	tb.Image = "http://roblox.com/asset?id=319692151";
+	ta.Position = UDim2.new(0, tlc1.x, 0, tlc1.y);
+	tb.Position = UDim2.new(0, tlc2.x, 0, tlc2.y);
+	ta.Size = UDim2.new(0, tbsize.x + extra, 0, tbsize.y + extra);
+	tb.Size = UDim2.new(0, tasize.x + extra, 0, tasize.y + extra);
+	ta.ImageTransparency = trans
+	tb.ImageTransparency = trans
+	ta.BorderColor3 = colour
+	tb.BorderColor3 = colour
+	ta.BorderSizePixel = 0
+	tb.BorderSizePixel = 0
+	ta.Rotation = math.deg(rotation);
+	tb.Rotation = ta.Rotation;
+	ta.ImageColor3 = colour;
+	tb.ImageColor3 = colour;
+	ta.Parent = parent;
+	tb.Parent = parent;
+	--print("drawn")
+	return ta, tb
+end;
+
+return drawTriangle;]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX790148612DF14622AF575967CE48B5D4">
+				<Properties>
+					<Content name="LinkedSource"><null></null></Content>
+					<string name="Name">Polygon</string>
+					<ProtectedString name="Source"><![CDATA[--[[
+	Author: Razorboot, Khan Academy Tutorials
+	Description: A collection of 2D polygon functions.
+--]]
+
+
+--# Point
+local Poly = {}
+
+
+--# Methods
+function Poly.x_intersect(x1, y1, x2, y2, x3, y3, x4, y4)
+	local num = (x1*y2 - y1*x2) * (x3-x4) - (x1-x2) * (x3*y4 - y3*x4);
+	local den = (x1-x2) * (y3-y4) - (y1-y2) * (x3-x4);
+	return num/den;
+end;
+
+function Poly.y_intersect(x1, y1, x2, y2, x3, y3, x4, y4)
+	local num = (x1*y2 - y1*x2) * (y3-y4) -
+		(y1-y2) * (x3*y4 - y3*x4);
+	local den = (x1-x2) * (y3-y4) - (y1-y2) * (x3-x4);
+	return num/den;
+end;
+
+function Poly.clip(inputPolygon, v1, v2)
+	local new_points = {};
+	local new_poly_size = 1;
+	local temp = {};
+	--println("v1: "+ v1);
+	--println("v2: "+ v2);
+
+	-- (ix,iy),(kx,ky) are the co-ordinate values of
+	-- the points
+	--for (local i = 0; i < inputPolygon.length; i++)
+	for i = 1, #inputPolygon, 1 do
+		-- i and k form a line in polygon
+		--local k = (i+1) % inputPolygon.length;
+		--local k = (i+1) % #inputPolygon;
+		local k = i + 1
+		if k > #inputPolygon then k = 1 end
+		local ix, iy = inputPolygon[i][1], inputPolygon[i][2];
+		local kx, ky = inputPolygon[k][1], inputPolygon[k][2];
+
+		--println("i: "+ i + "     k: " + k);
+		--println(ix + " " + iy + ", " + kx + " " + ky);
+		-- Calculating position of first point
+		-- w.r.t. clipper line
+
+		local i_pos = (v2[1]-v1[1]) * (iy-v1[2]) - (v2[2]-v1[2]) * (ix-v1[1]);
+
+		-- Calculating position of second point
+		-- w.r.t. clipper line
+		local k_pos = (v2[1]-v1[1]) * (ky-v1[2]) - (v2[2]-v1[2]) * (kx-v1[1]);
+
+		--println(i_pos);
+		--println(k_pos);
+
+		-- Case 1 : When both points are inside
+		if (i_pos < 0 and k_pos < 0)then
+			--println("CASE 1");
+			--Only second point is added
+			temp = {kx, ky};
+			new_points[new_poly_size] = temp;
+			new_poly_size = new_poly_size + 1;
+		elseif (i_pos >= 0 and k_pos < 0) then -- Case 2: When only first point is outside
+			--println("CASE 2");
+			-- Point of intersection with edge
+			-- and the second point is added
+			temp = {};
+			temp[1] = Poly.x_intersect(v1[1],v1[2],v2[1],v2[2],ix,iy,kx,ky);
+			temp[2] = Poly.y_intersect(v1[1],v1[2],v2[1],v2[2],ix,iy,kx,ky);
+			new_points[new_poly_size] = temp;
+			new_poly_size = new_poly_size + 1;
+
+			temp = {kx, ky};
+			new_points[new_poly_size] = temp;
+			new_poly_size = new_poly_size + 1;
+		elseif (i_pos < 0 and k_pos >= 0) then -- Case 3: When only second point is outside
+			--println("CASE 3");
+			--Only point of intersection with edge is added
+			temp = {};
+			temp[1] = Poly.x_intersect(v1[1],v1[2],v2[1],v2[2],ix,iy,kx,ky);
+			temp[2] = Poly.y_intersect(v1[1],v1[2],v2[1],v2[2],ix,iy,kx,ky);
+			new_points[new_poly_size] = temp;
+			new_poly_size = new_poly_size + 1;
+		else -- Case 4: When both points are outside
+			--println("CASE 4");
+			--No points are added
+		end
+		--println("new_poly_size: "+new_poly_size);
+	end
+
+    --[[
+    -- Copying new points into original array
+    -- and changing the no. of vertices
+    local poly_size = new_poly_size;
+    for (local i = 0; i < poly_size; i++)
+    {
+        poly_points[i][0] = new_points[i][0];
+        poly_points[i][1] = new_points[i][1];
+    }
+    ]]
+
+	--print(unpack(new_points))
+	return new_points;
+end
+
+function Poly.clipAgainst(inputPolygon, clippingPolygon)
+	--println("input: [" + inputPolygon + "]");
+	--println("clipping: [" + clippingPolygon + "]");
+
+	--make sure you dont edit the original polygon
+	local poly = inputPolygon;
+	local testPoly = inputPolygon;
+	--for (var i = 0; i < clippingPolygon.length; i++){
+	for i = 1, #clippingPolygon, 1 do
+		--local k = (i+1) % clippingPolygon.length;
+		local k = i + 1
+		if k > #clippingPolygon then k = 1 end
+
+		--println(clippingPolygon[1]);
+		--println(clippingPolygon[2]);
+		poly = Poly.clip(poly, clippingPolygon[i], clippingPolygon[k]);
+		--[[if testPoly ~= nil then
+			if #testPoly > 0 then
+				poly = testPoly;
+			end
+		end]]
+		--poly = clip(poly, clippingPolygon[1], clippingPolygon[2]);
+		--println("poly: " + poly);
+	end
+	--println("return: "+ poly);
+	return poly;
+end;
+
+function Poly.triangulate(clippedPolygon)
+	--if polygon is already a triangle
+    local listOfTriangles = {};
+	if (#clippedPolygon == 3) then
+		listOfTriangles = {
+			{Vector2.new(clippedPolygon[1][1], clippedPolygon[1][2]),
+			Vector2.new(clippedPolygon[2][1], clippedPolygon[2][2]),
+			Vector2.new(clippedPolygon[3][1], clippedPolygon[3][2])},
+		};
+		return listOfTriangles
+    else
+        --triangulate the polygon
+        listOfTriangles = {};
+        local count = 1;
+		--for(var i = 0; i < clippedPolygon.length-1; i++){
+		for i = 1, #clippedPolygon-2, 1 do
+            local temp = {};
+            temp[1] = clippedPolygon[1];
+            temp[2] = clippedPolygon[i+1];
+			temp[3] = clippedPolygon[i+2];
+			
+            listOfTriangles[count] = temp;
+            count = count + 1;
+        end
+	end
+	--for (var i = 0; i < listOfTriangles.length; i++){
+	local finalTris = {}
+	for i = 1, #listOfTriangles, 1 do
+		local tri = listOfTriangles[i];
+		
+		table.insert(finalTris,{
+			Vector2.new(tri[1][1], tri[1][2]),
+			Vector2.new(tri[2][1], tri[2][2]),
+			Vector2.new(tri[3][1], tri[3][2])
+		})
+        --triangle(tri[0][0], tri[0][1], tri[1][0], tri[1][1], tri[2][0], tri[2][1]);
+	end
+	
+	return finalTris
+end
+
+
+--# Finalize
+return Poly]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="BoolValue" referent="RBX1CB421246021451DA8DEEB411C2AD0EF">
+				<Properties>
+					<string name="Name">useLightingProperties</string>
+					<bool name="Value">false</bool>
+				</Properties>
+			</Item>
+			<Item class="NumberValue" referent="RBX874AB5A30B114454965A4B47E8959CF8">
+				<Properties>
+					<string name="Name">hasShadowBrightness</string>
+					<double name="Value">0.5</double>
+				</Properties>
+			</Item>
+			<Item class="NumberValue" referent="RBX92666856E5D6435C89C31AD7F7FC3490">
+				<Properties>
+					<string name="Name">hasAmbient</string>
+					<double name="Value">0.25</double>
+				</Properties>
+			</Item>
+			<Item class="BoolValue" referent="RBXD46429946D214600ACEFFD305A376703">
+				<Properties>
+					<string name="Name">useExperimental</string>
+					<bool name="Value">false</bool>
+				</Properties>
+			</Item>
+			<Item class="Color3Value" referent="RBXA608FF2E237A4FC2B37DC0599D8564C2">
+				<Properties>
+					<string name="Name">hasShadowColor</string>
+					<Color3 name="Value">
+						<R>0</R>
+						<G>0</G>
+						<B>0</B>
+					</Color3>
+				</Properties>
+			</Item>
+		</Item>
+		<Item class="ModuleScript" referent="RBXAB0A10BC98034C8FA95D7666B2B92649">
+			<Properties>
+				<Content name="LinkedSource"><null></null></Content>
+				<string name="Name">BaseFuncs</string>
+				<ProtectedString name="Source"><![CDATA[--[[
+	Created By: Razorboot
+	Last Modified: 11/9/22
+	Description: A collection of essential functions I use when scripting. :p
+--]]
+
+
+--# Point
+local BaseFuncs = {}
+
+
+--# Maths
+function BaseFuncs.Lerp(a, b, dt) -- Move a number to another number by a desired amount (dt). dt goes from 0 to 1.
+	return a + (b - a) * dt
+end
+
+
+--# General
+function BaseFuncs.GetDescendants(object)
+    local descendants = {}
+
+    local function Scan(parent)
+        for _,v in pairs(parent:GetChildren()) do
+            table.insert(descendants, v)
+            Scan(v)
+        end
+    end
+
+    Scan(object)
+    return descendants
+end
+
+function BaseFuncs.hasProperty(object, prop)
+	local success = pcall(function() local t = object[prop] end)
+	return success
+end
+
+function BaseFuncs.GetItemInTable(item, tb)
+    for i, tbItem in pairs(tb) do
+		if item == tbItem then return i, item end
+	end
+end
+
+function BaseFuncs.fastFindFirstChild(loc, name)
+	local success = pcall(function() local obj = loc[name] end)
+	if success then return loc[name] end
+end
+
+
+--# CFrame
+function BaseFuncs.SetPrimaryPartCFrame(primpart, model, desiredcf) -- This function is used to set the CFrame of an entire model.
+	local origprimpartcf = primpart.CFrame
+
+	for i, part in pairs(BaseFuncs.GetDescendants(model)) do
+		if part:IsA("BasePart") then
+			local offset = origprimpartcf:inverse() * part.CFrame
+			part.CFrame = desiredcf * offset
+		end
+	end
+
+	primpart.CFrame = desiredcf
+end
+
+function BaseFuncs.GetSurfaceNormal(Part, Point)
+	local p = Part.CFrame:toObjectSpace(CFrame.new(Point)).p
+	if (math.abs(p.X)>=Part.Size.X/2-.1) then
+		return (Part.CFrame*Vector3.new(p.X/math.abs(p.X),0,0)-Part.CFrame.p)
+	elseif (math.abs(p.Y)>=Part.Size.Y/2-.1) then
+		return (Part.CFrame*Vector3.new(0,p.Y/math.abs(p.Y),0)-Part.CFrame.p)
+	elseif (math.abs(p.Z)>=Part.Size.Z/2-.1) then
+		return (Part.CFrame*Vector3.new(0,0,p.Z/math.abs(p.Z))-Part.CFrame.p)
+	end
+end
+
+
+--# Interpolation
+function BaseFuncs.LerpVec2(a, b, dt) -- Move a Vector2 from one point to another by a desired amount.
+	local ax, ay = BaseFuncs.Lerp(a.x, b.x, dt), BaseFuncs.Lerp(a.y, b.y, dt)
+	return Vector2.new(ax, ay)
+end
+
+function BaseFuncs.LerpVec3(a, b, dt) -- Move a Vector3 from one point to another by a desired amount.
+	local ax, ay, az = BaseFuncs.Lerp(a.x, b.x, dt), BaseFuncs.Lerp(a.y, b.y, dt), BaseFuncs.Lerp(a.z, b.z, dt)
+	return Vector3.new(ax, ay, az)
+end
+
+function BaseFuncs.LerpCF(CFA, CFB, dt) -- Move a CFrame from one point to another by a desired amount.
+	local Ax, Ay, Az, Am11, Am12, Am13, Am21, Am22, Am23, Am31, Am32, Am33 = CFA:components()
+	local Bx, By, Bz, Bm11, Bm12, Bm13, Bm21, Bm22, Bm23, Bm31, Bm32, Bm33 = CFB:components()
+	
+	Ax, Ay, Az = BaseFuncs.Lerp(Ax, Bx, dt), BaseFuncs.Lerp(Ay, By, dt), BaseFuncs.Lerp(Az, Bz, dt)
+	Am11, Am12, Am13 = BaseFuncs.Lerp(Am11, Bm11, dt), BaseFuncs.Lerp(Am12, Bm12, dt), BaseFuncs.Lerp(Am13, Bm13, dt)
+	Am21, Am22, Am23 = BaseFuncs.Lerp(Am21, Bm21, dt), BaseFuncs.Lerp(Am22, Bm22, dt), BaseFuncs.Lerp(Am23, Bm23, dt)
+	Am31, Am32, Am33 = BaseFuncs.Lerp(Am31, Bm31, dt), BaseFuncs.Lerp(Am32, Bm32, dt), BaseFuncs.Lerp(Am33, Bm33, dt)
+	
+	return CFrame.new(Ax, Ay, Az, Am11, Am12, Am13, Am21, Am22, Am23, Am31, Am32, Am33)
+end
+
+
+--# Rays
+function BaseFuncs.CastRay(Origin, Direction, BlackList)
+	local Ray = Ray.new(Origin, Direction)
+	local HitPart, HitPos, HitNorm = nil, nil
+	
+	if BlackList then
+		HitPart, HitPos = workspace:FindPartOnRayWithIgnoreList(Ray, BlackList)
+	else
+		HitPart, HitPos = workspace:FindPartOnRay(Ray)
+	end
+	
+	if HitPart then
+		return {Part = HitPart, Pos = HitPos, Norm = BaseFuncs.GetSurfaceNormal(HitPart, HitPos)}
+	end
+end
+
+
+--# Finalize
+return BaseFuncs]]></ProtectedString>
+			</Properties>
+		</Item>
+		<Item class="ModuleScript" referent="RBXD4095A1B28204DFC9D53BF51237E8F00">
+			<Properties>
+				<Content name="LinkedSource"><null></null></Content>
+				<string name="Name">Spring</string>
+				<ProtectedString name="Source"><![CDATA[--[[
+	Created By: Razorboot
+	Last Modified: 11/9/22
+	Description: Spring-mass class
+--]]
+
+
+--# Point
+
+local Spring = {}
+Spring.__index = Spring
+
+
+
+--# Methods
+
+function Spring:new()
+    local newSpring = {
+		gravity = 2,
+        k = 2, -- Constant
+        damping = 2, -- constrict spring movement
+        mass = 5, -- heaviness
+        vel = Vector3.new(), -- velocity
+        pos = Vector3.new(), -- origin position
+        anchorPos = Vector3.new(), -- destination position,
+
+		isRopeDrawable = true,
+		ropePart = nil
+    }
+
+    setmetatable(newSpring, Spring)
+    return newSpring
+end
+
+function Spring:update(dt)
+    local springForce = -self.k * (self.pos - self.anchorPos)
+    local dampingForce = self.damping * self.vel
+    local force = springForce --[[+ Vector3.new(self.mass, self.mass, self.mass)]] - dampingForce
+	force = Vector3.new(force.X, springForce.Y - self.mass * self.gravity - dampingForce.Y, force.Z)
+    local acceleration = force/self.mass
+    self.vel = self.vel + acceleration * dt
+    self.pos = self.pos + self.vel * dt
+
+	if self.isRopeDrawable == true then
+		if not self.ropePart then
+			self.ropePart = Instance.new("Part", workspace)
+			self.ropePart.Locked = true
+			self.ropePart.Anchored, self.ropePart.CanCollide = true, false
+			self.ropePart.BrickColor = BrickColor.new("Reddish brown")
+			self.ropePart.FormFactor = Enum.FormFactor.Custom
+			local ropeMeshInstance = Instance.new("SpecialMesh", self.ropePart)
+			ropeMeshInstance.MeshType = Enum.MeshType.Cylinder
+			ropeMeshInstance.Scale = Vector3.new(1, 0.45, 0.45)
+		end
+		
+		self.ropePart.Size = Vector3.new((self.anchorPos - self.pos).magnitude, 0.25, 0.25)
+		self.ropePart.CFrame = CFrame.new(self.pos + ((self.anchorPos - self.pos)*0.5), self.pos) * CFrame.Angles(0, math.rad(90), 0)
+	end
+end
+
+
+
+--# Finalize
+
+return Spring]]></ProtectedString>
+			</Properties>
+		</Item>
+		<Item class="ModuleScript" referent="RBX854D3CECE9BC43938CF4737114660383">
+			<Properties>
+				<Content name="LinkedSource"><null></null></Content>
+				<string name="Name">Triangulator</string>
+				<ProtectedString name="Source"><![CDATA[--[[
+	Created By: I forgot
+	Last Modified: 11/9/22
+	Description: Triangulation module. Allows a triangle to be formed from three selected vertices.
+--]]
+
+
+local Color = BrickColor.new("Really black")
+local Material = Enum.Material.SmoothPlastic
+local Align = "Normal"
+local Thickness = 0.25
+local Tris = {}
+
+
+--# Math references (optimization)
+local vec3 = Vector3.new
+local cf = CFrame.new
+local cfa = CFrame.Angles
+
+local bc = BrickColor.new("Really black")
+local mat = Enum.Material.SmoothPlastic
+
+
+--# Functions
+function spawnTrianglePart(loc)
+	local P = Instance.new("WedgePart")
+	P.Anchored, P.CanCollide, P.Locked = true, false, true
+	P.BrickColor = bc
+	P.Material = mat
+	P.Transparency = 0.5
+	P.FrontSurface = Enum.SurfaceType.SmoothNoOutlines
+	P.BackSurface = Enum.SurfaceType.SmoothNoOutlines
+	P.LeftSurface = Enum.SurfaceType.SmoothNoOutlines
+	P.RightSurface = Enum.SurfaceType.SmoothNoOutlines
+	P.TopSurface = Enum.SurfaceType.SmoothNoOutlines
+	P.BottomSurface = Enum.SurfaceType.SmoothNoOutlines
+	return P
+end
+
+function createDebugPart(posA, posB, loc)
+	local debugPart = Instance.new("Part", loc)
+	debugPart.Locked = true
+	debugPart.Anchored, debugPart.CanCollide = true, false
+	debugPart.BrickColor = BrickColor.new("Toothpaste")
+	debugPart.FormFactor = Enum.FormFactor.Custom
+	local diffPos = (posB - posA)
+	debugPart.Size = vec3(diffPos.magnitude, 0.25, 0.25)
+	debugPart.CFrame = cf(posA + (diffPos*0.5), posA) * cfa(0, math.rad(90), 0)
+	local debugMeshInstance = Instance.new("SpecialMesh", debugPart)
+	debugMeshInstance.MeshType = Enum.MeshType.Cylinder
+	debugMeshInstance.Scale = vec3(1, 0.25, 0.25)
+end
+
+function Tris.drawTriangle(a,b,c,n,loc,debugEnabled)
+	local len_AB = (b - a).magnitude
+	local len_BC = (c - b).magnitude
+	local len_CA = (a - c).magnitude
+
+	if (len_AB > len_BC) and (len_AB > len_CA) then
+		a,c = c,a
+		b,c = c,b
+	elseif (len_CA > len_AB) and (len_CA > len_BC) then
+		a,b = b,a
+		b,c = c,b
+	end
+
+	local dot = (a - b):Dot(c - b)
+	local split = b + (c-b).unit*dot/(c - b).magnitude
+	
+	local xA = Thickness
+	local yA = (split - a).magnitude
+	local zA = (split - b).magnitude
+	
+	local xB = Thickness
+	local yB = (split - a).magnitude
+	local zB = (split - c).magnitude
+
+	local diry = (a - split).unit
+	local dirz = (c - split).unit
+	local dirx = diry:Cross(dirz).unit
+
+	local posA = split + diry*yA/2 - dirz*zA/2
+	local posB = split + diry*yB/2 + dirz*zB/2
+
+	loc = loc or workspace
+	
+	if debugEnabled == true then
+		createDebugPart(a, b, loc)
+		createDebugPart(b, c, loc)
+		createDebugPart(c, a, loc)
+	end
+
+	local partA = spawnTrianglePart(loc)
+	partA.Parent = loc
+	partA.Name = "TrianglePart"
+	partA.Size = vec3(xA,math.min(yA,2048),math.min(zA,2048))
+	local mA = Instance.new("SpecialMesh")
+	mA.MeshType = Enum.MeshType.Wedge
+	mA.Scale = vec3(xA,yA,zA)/partA.Size
+	mA.Scale = vec3(0.002, mA.Scale.Y, mA.Scale.Z)
+	mA.Offset = vec3(-n*(partA.Size.x-xA)/2,0,0)
+	if mA.Scale == vec3(1,1,1) then mA:Destroy() end
+	partA.CFrame = cf(posA.x,posA.y,posA.z, dirx.x,diry.x,dirz.x, dirx.y,diry.y,dirz.y, dirx.z,diry.z,dirz.z)
+	partA.CFrame = partA.CFrame:toWorldSpace(cf(n*math.max(.2,xA)/2,0,0))
+	dirx = dirx * -1
+	dirz = dirz * -1
+	mA.Parent = partA
+
+	local partB = spawnTrianglePart(loc)
+	partB.Parent = loc
+	partB.Name = "TrianglePart"
+	partB.Size = vec3(xB,yB,zB)
+	local mB = Instance.new("SpecialMesh")
+	mB.MeshType = Enum.MeshType.Wedge
+	mB.Scale = vec3(xB,math.min(yB,2048),math.min(zB,2048))/partB.Size
+	mB.Scale = vec3(0.005, mB.Scale.Y, mB.Scale.Z)
+	mB.Offset = vec3(n*(partB.Size.x-xB)/2,0,0)
+	if mB.Scale == vec3(1,1,1) then mB:Destroy() end
+	partB.CFrame = cf(posB.x,posB.y,posB.z, dirx.x,diry.x,dirz.x, dirx.y,diry.y,dirz.y, dirx.z,diry.z,dirz.z)
+	partB.CFrame = partB.CFrame:toWorldSpace(cf(-n*math.max(.2,xB)/2,0,0))
+	mB.Parent = partB
+	
+	partA.Parent = loc
+	partB.Parent = loc
+	
+	return partA,partB
+end 
+
+return Tris]]></ProtectedString>
+			</Properties>
+		</Item>
+	</Item>
+	<Item class="Configuration" referent="RBX1608A67C3415467581572F2994AC2060">
+		<Properties>
+			<string name="Name">Scripts</string>
+		</Properties>
+		<Item class="Script" referent="RBX28B4E36EC51E40BC82F575199AFEB828">
+			<Properties>
+				<bool name="Disabled">false</bool>
+				<Content name="LinkedSource"><null></null></Content>
+				<string name="Name">Main</string>
+				<ProtectedString name="Source"><![CDATA[--# Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+
+--# Include
+local Modules = script.Parent.Parent:WaitForChild("Modules")
+local BaseFuncs = require(Modules:WaitForChild("BaseFuncs"))
+local Shadow = require(Modules:WaitForChild("Shadow"))
+local Spring = require(Modules:WaitForChild("Spring"))
+
+
+--# Character Shadow implementation
+local enableCharacterShadows = false
+
+-- Put the Modules and Scripts folders into Starter Gui if making this client sided. Also make this script a LocalScript
+-- Uncomment the stuff below when making this client-sided:
+
+--[[local plr = Players.localPlayer
+local char = plr.Character or plr.CharacterAdded:Wait()
+repeat wait() until char.Parent == workspace
+
+if enableCharacterShadows == true then
+	for _, part in pairs(char:GetChildren()) do
+		-- Enabling shadows on a single part
+		Shadow.setPartProperty(part, "isShadowOccluder", true)
+	end
+end]]
+
+
+--# Variables
+local lastTick = tick()
+
+
+--# Enabling shadows on a model
+--Shadow.setModelOcclusion(workspace.Building1.Occluders, true)
+--Shadow.setModelProperty(workspace.Interior, true)
+--Shadow.setPartProperty(workspace.PartBack, "isShadowCanvasAll", true)
+Shadow.setModelProperty(workspace.Interior.Canvases, "isShadowCanvasTop", true)
+
+Shadow.setModelProperty(workspace.Interior.Detailed.Occluders, "isShadowCanvasAll", true)
+Shadow.setModelProperty(workspace.Interior.Detailed.Occluders, "isShadowOccluder", true)
+Shadow.setModelProperty(workspace.Interior.Detailed.Occluders, "hasLitSurfaces", true)
+
+
+--# Hanging light rope
+local hangLightModel = workspace:WaitForChild("HangingLight")
+local anchorPart = hangLightModel:WaitForChild("AnchorPart")
+local lightPart = hangLightModel:WaitForChild("LightPart")
+
+local hangingSpring = Spring:new()
+local origAnchorPos = hangLightModel.AnchorPart.Position
+hangingSpring.anchorPos = hangLightModel.AnchorPart.Position
+hangingSpring.pos = hangLightModel.LightPart.Position
+
+
+--# Initiate Light Sources
+Shadow.getAllLightSources(workspace)
+
+
+--# Initiate Shadows
+local rootManifolds = Shadow.getRootManifolds()
+local litPartManifolds = Shadow.getLitPartManifolds()
+Shadow.createAllShadowMeshes(rootManifolds)
+litPartManifolds = Shadow.lightPartManifolds(litPartManifolds)
+
+wait(2)
+--# Updates
+RunService.Heartbeat:connect(function() -- The frequency that the shadow manifolds are updated.
+	-- DT calculations for how fast updates are performed
+	local frameDT =  1 /  ( (1 - (tick() - lastTick)) * 3.5)
+	lastTick = tick()
+	--print(frameDT)
+	-- Draw the rope between the anchor and the light source
+	if hangLightModel.AnchorPart.Locked == true then
+		hangLightModel.AnchorPart.CFrame = CFrame.new(origAnchorPos + Vector3.new(math.sin(tick() * 1.5) * 15, 0, math.sin(tick() * 1) * 15 ))
+	end
+	hangingSpring.anchorPos = hangLightModel.AnchorPart.Position
+	hangLightModel.LightPart.CFrame = CFrame.new(hangingSpring.pos, hangingSpring.anchorPos + Vector3.new(0, 0, 0.05)) * CFrame.Angles(math.rad(-90), 0, 0)
+	hangingSpring:update(frameDT)
+
+	-- Updating the shadows each frame based on scene changes
+	Shadow.updateAllLightSources()
+	rootManifolds = Shadow.updateRootManifolds(rootManifolds)
+	
+	-- Update the part shading each frame based on scene changes
+	litPartManifolds = Shadow.updateLitPartManifolds(litPartManifolds)
+end)]]></ProtectedString>
+			</Properties>
+		</Item>
+	</Item>
+</roblox>
