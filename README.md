@@ -85,9 +85,16 @@ Shadow.setPartProperty(Part, "hasLitSurfaces", true)
 -- Allow the surfaces of a model to be lit
 Shadow.setModelProperty(Part, "hasLitSurfaces", true)
 ```
-* Exactly as the previous function, setting the final parameter to ``false`` will disable the Lit Surfaces feature for the object.
+* Lit Surfaces are stored into containers called ``LitPartManifolds``, this allows the script to easily work with them:
+```lua
+local litPartManifolds = Shadow.getLitPartManifolds()
+```
+* Lit Surfaces need to be updated each frame in order to account for changes in position relevant to Light Sources:
+```lua
+litPartManifolds = Shadow.updateLitPartManifolds(litPartManifolds)
+```
 
-### Light Sources and :
+### Light Sources:
 * Light Sources is a list of Lights in your scene that you want to cast shadows and influence Lit Surfaces.
 * You can insert all light sources in a container using:
 ```lua
