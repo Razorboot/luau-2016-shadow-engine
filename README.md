@@ -4,28 +4,28 @@
 Built off of Egomooses Shadow Silhouttes Tutorial: https://scriptinghelpers.org/guides/silhouettes-and-shadows
 Created By: Razorboot
 Description: 
-  * An attempt at an optimized raycasted shadow-polygon implementation. 
-  * This is a complex set of object oriented mini-classes and polygonal algorithms for:
-    * accurate n-gon to triangle conversion,
-    * clipped polygons,
-    * multiple light sources,
-    * optimized vertex grabbing,
-    * ray to plane intersection,
-    * rotated shadow occluders and canvases,
-    * world position shadows to 2d space, clipped, triangle-based shadows,
-    * surface-based real-time lighting calculations:
-      an attempt to make the system appear more well-integrated with shadow engine.
-  * Inspired by early 2000's Shadow Volumes in games like Thief: Deadly Shadows and Doom III.
-  * Manifold data-structure system was inspired by collision manifolds in AABB physics.
-      This implementation is classless and includes nested arrays as a form of orginization.
+* An attempt at an optimized raycasted shadow-polygon implementation. 
+* This is a complex set of object oriented mini-classes and polygonal algorithms for:
+  * accurate n-gon to triangle conversion,
+  * clipped polygons,
+  * multiple light sources,
+  * optimized vertex grabbing,
+  * ray to plane intersection,
+  * rotated shadow occluders and canvases,
+  * world position shadows to 2d space, clipped, triangle-based shadows,
+  * surface-based real-time lighting calculations:
+    an attempt to make the system appear more well-integrated with shadow engine.
+* Inspired by early 2000's Shadow Volumes in games like Thief: Deadly Shadows and Doom III.
+* Manifold data-structure system was inspired by collision manifolds in AABB physics.
+    This implementation is classless and includes nested arrays as a form of orginization.
 
 ## New Changes as of 12/3/22:
-  * I can confidently say that, in the realm of cube-shapes parts, the current engine is complete!
-  * Complex multi-surface shadows supported.
-  * Rotated parts (occluders and canvases) now supported.
-  * A mini lighting engine for rendering part surfaces is now added and functional in real-time!
-    * This supports multiple lighting options you now have control over in Shadow script!
-  * Shadows are now Surface-Gui based for more optimal results.
+* I can confidently say that, in the realm of cube-shapes parts, the current engine is complete!
+* Complex multi-surface shadows supported.
+* Rotated parts (occluders and canvases) now supported.
+* A mini lighting engine for rendering part surfaces is now added and functional in real-time!
+  * This supports multiple lighting options you now have control over in Shadow script!
+* Shadows are now Surface-Gui based for more optimal results.
 
 
 ## Getting Started:
@@ -49,3 +49,13 @@ local Shadow = require(Modules:WaitForChild("Shadow"))
 ### Shadow Canvases:
 * Shadow Canvases are SurfaceGui's that are mapped onto parts!
 * They are the surfaces of a part that can have shadows projected onto them.
+* Shadow Canvases are flat planes that can be applied to any face of a Part.
+
+### Occluders:
+* Occluders are the Parts that block light sources, and thus cast shadows onto shadow canvases.
+* All occluders are treated as cubes, so any other shaped-part will be treated as such.
+ * I'm currently working on adding more Part-types, so this won't be permanent!
+
+### Demo:
+![Group 1](https://user-images.githubusercontent.com/103084464/205473222-2a12b90c-f2e0-41b8-bf54-d5a7161b5eba.png)
+
