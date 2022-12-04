@@ -35,11 +35,19 @@ Created By: Razorboot
 
 
 ## Getting Started:
-### Installing the engine:
+### If you plan on using the Engine itself:
 1. First, download the ``Shadow_Modules.rbxmx`` file.
 2. If you plan on using the engine client-sided, right click on ``StarterGui``, select ``Insert From File``, and select the ``Shadow_Modules.rbxmx`` file.
   * Keep in mind FilteringEnabled will have to be enabled in order to use the client-sided engine.
 3. If you plan on using the engine server-sided, right click on ``Workspace``, select ``Insert From File``, and select the ``Shadow_Modules.rbxmx`` file.
+
+### If you plan on using the place file:
+1. First, download the ``Shadow_TestPlace.rbxl`` file.
+2. If you plan on using the engine client-sided, go into ``ServerScriptService`` --> ``Scripts`` --> ``Main``. 
+3. Cut the code from this script into a ``LocalScript`` and read the comments inside of the script to know what to uncomment. 
+4. Place the new script back into the ``Scripts`` folder. 
+5. Next, you can drag both ``Modules`` and ``Scripts`` into ``StarterGui``.
+6. By default, the rbxl file is already set up to be used server-sided.
 
 ### Include the Shadow module:
 1. For client-sided, insert a ``LocalScript`` in ``StarterGui``.
