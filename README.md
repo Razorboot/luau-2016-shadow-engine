@@ -30,17 +30,22 @@ Description:
 
 ## Getting Started:
 ### Installing the engine:
-1.) First, copy the ``Shadow_Modules.rbxmx`` file.
-2.) If you plan on using the engine client-sided, right click on ``StarterGui``, select ``Insert From File``, and select the ``Shadow_Modules.rbxmx`` file.
+1. First, download the ``Shadow_Modules.rbxmx`` file.
+2. If you plan on using the engine client-sided, right click on ``StarterGui``, select ``Insert From File``, and select the ``Shadow_Modules.rbxmx`` file.
   * Keep in mind FilteringEnabled will have to be enabled in order to use the client-sided engine.
-3.) If you plan on using the engine server-sided, right click on ``Workspace``, select ``Insert From File``, and select the ``Shadow_Modules.rbxmx`` file.
+3. If you plan on using the engine server-sided, right click on ``Workspace``, select ``Insert From File``, and select the ``Shadow_Modules.rbxmx`` file.
 
 ### Include the Shadow module:
-1.) For client-sided, insert a ``LocalScript`` in ``StarterGui``.
-2.) For server-sided, insert a new ``Script`` in ``Workspace``.
-3.) To finally include the module, type:
+1. For client-sided, insert a ``LocalScript`` in ``StarterGui``.
+2. For server-sided, insert a new ``Script`` in ``Workspace``.
+3. To finally include the module, type:
 ```lua
 --# Include
 local Modules = --Location of the inserted Shadow_Modules.rbxmx file
 local Shadow = require(Modules:WaitForChild("Shadow"))
 ```
+
+## Creating Shadow Instances:
+### Shadow Canvases:
+* Shadow Canvases are SurfaceGui's that are mapped onto parts!
+* They are the surfaces of a part that can have shadows projected onto them.
