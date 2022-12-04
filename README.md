@@ -29,7 +29,7 @@ Description:
 
 ## Diagram: a visual of a fully-rendered scene and it's corresponding parts
 * ![Group 1](https://user-images.githubusercontent.com/103084464/205473222-2a12b90c-f2e0-41b8-bf54-d5a7161b5eba.png)
-## Demos:
+## Demos: Some test-scenes I made to showcase a few features the engine has
 * ![ezgif com-gif-maker (2)](https://user-images.githubusercontent.com/103084464/205485358-7d54b807-034b-492c-b648-823228a8d3fa.gif)
 * ![ezgif com-gif-maker (3)](https://user-images.githubusercontent.com/103084464/205485469-d6303061-9256-471b-8908-d844c90755e0.gif)
 
