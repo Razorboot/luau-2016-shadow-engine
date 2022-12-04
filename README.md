@@ -27,6 +27,13 @@ Description:
   * This supports multiple lighting options you now have control over in Shadow script!
 * Shadows are now Surface-Gui based for more optimal results.
 
+## Demos:
+* Here is a visual of a fully-rendered scene and it's corresponding parts:
+![Group 1](https://user-images.githubusercontent.com/103084464/205473222-2a12b90c-f2e0-41b8-bf54-d5a7161b5eba.png)
+* Videos showcasing the engine:
+https://user-images.githubusercontent.com/103084464/205485232-1dc4c8b8-0f69-44d7-b944-3ffa7babeeb2.mov
+https://user-images.githubusercontent.com/103084464/205485252-901e70bb-20ae-4d15-a0d4-32d09d1dd505.mov
+
 
 ## Getting Started:
 ### Installing the engine:
@@ -112,7 +119,7 @@ Shadow.updateAllLightSources()
 
 ### Root/Canvas Manifolds:
 * When creating shadows, each Shadow Canvas is passed into a function that generates arrays with relevant information for the Occluders and Light Sources that will be taken into account.
-* To create a root manifold for all Shadow Canvase, use:
+* To create a root manifold for all Shadow Canvases, use:
 ```lua
 local rootManifolds = Shadow.getRootManifolds()
 ```
@@ -120,8 +127,3 @@ local rootManifolds = Shadow.getRootManifolds()
 ```lua
 rootManifolds = Shadow.updateRootManifolds(rootManifolds)
 ```
-
-### Demo:
-* Here is a visual of a fully-rendered scene and it's corresponding parts:
-![Group 1](https://user-images.githubusercontent.com/103084464/205473222-2a12b90c-f2e0-41b8-bf54-d5a7161b5eba.png)
-
