@@ -943,7 +943,7 @@ end
 function Shadow.setPartProperty(part, property, bool)
 	if part:IsA("BasePart") then
 		if type(bool) ~= "table" then
-			if property ~= "isShadowCanvasAll" and property ~= "isShadowCanvasLeft" and property ~= property ~= "isShadowCanvasRight" and property ~= "isShadowCanvasTop" and property ~= "isShadowCanvasBottom" and property ~= "isShadowCanvasFront" and property ~= "isShadowCanvasBack" then
+			if property ~= "isShadowCanvasAll" and property ~= "isShadowCanvasLeft" and property ~= "isShadowCanvasRight" and property ~= "isShadowCanvasTop" and property ~= "isShadowCanvasBottom" and property ~= "isShadowCanvasFront" and property ~= "isShadowCanvasBack" then
 				local propVal = part:FindFirstChild(property)
 				
 				if bool == false then
