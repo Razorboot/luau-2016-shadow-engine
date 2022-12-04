@@ -110,6 +110,17 @@ Shadow.removeLightSource(light)
 Shadow.updateAllLightSources()
 ```
 
+### Root/Canvas Manifolds:
+* When creating shadows, each Shadow Canvas is passed into a function that generates arrays with relevant information for the Occluders and Light Sources that will be taken into account.
+* To create a root manifold for all Shadow Canvase, use:
+```lua
+local rootManifolds = Shadow.getRootManifolds()
+```
+* Root manifolds need to be updated each frame in order to account for changes in Position of the Shadow Canvas itself, Occluders, and Light Sources:
+```lua
+rootManifolds = Shadow.updateRootManifolds(rootManifolds)
+```
+
 ### Demo:
 * Here is a visual of a fully-rendered scene and it's corresponding parts:
 ![Group 1](https://user-images.githubusercontent.com/103084464/205473222-2a12b90c-f2e0-41b8-bf54-d5a7161b5eba.png)
