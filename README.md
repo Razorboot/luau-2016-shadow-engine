@@ -45,7 +45,7 @@ local Modules = --Location of the inserted Shadow_Modules.rbxmx file
 local Shadow = require(Modules:WaitForChild("Shadow"))
 ```
 
-## Creating Shadow Instances:
+## Creating Light and Shadow Instances:
 ### Shadow Canvases:
 * Shadow Canvases are SurfaceGui's that are mapped onto parts!
 * They are the surfaces of a part that can have shadows projected onto them.
@@ -57,13 +57,27 @@ local Shadow = require(Modules:WaitForChild("Shadow"))
  -- Add canvas to all surfaces of a model
  Shadow.setPartProperty(Part, "isShadowCanvasAll", true)
  ```
- * Setting the final parameter to ``false`` will delete a pre-existing canvas.
- * ``"isShadowCanvasAll"`` is one out of 6 surfaces. You can replace ``All`` in ``isShadowCanvasAll`` with either Top, Bottom, Right, Left, Front, or Back in order to add a Shadow Canvas to a single surface.
+* Setting the final parameter to ``false`` will delete a pre-existing canvas.
+* ``"isShadowCanvasAll"`` is one out of 6 surfaces. You can replace ``All`` in ``isShadowCanvasAll`` with either Top, Bottom, Right, Left, Front, or Back in order to add a Shadow Canvas to a single surface.
 
 ### Occluders:
 * Occluders are the Parts that block light sources, and thus cast shadows onto shadow canvases.
 * All occluders are treated as cubes, so any other shaped-part will be treated as such.
- * I'm currently working on adding more Part-types, so this won't be permanent!
+* I'm currently working on adding more Part-types, so this won't be permanent!
+* A part or model can be set to an Occluder using:
+```lua
+-- Set a part to an Occluder
+Shadow.setModelProperty(Part, "isShadowOccluder", true)
+-- Set a model to an Occluder
+Shadow.setPartProperty(Part, "isShadowOccluder", true)
+```
+* Exactly as the previous function, setting the final parameter to ``false`` will ensure the part won't cast shadows.
+
+### Lit Surfaces:
+* This is an optional category that isn't essential for shadow creation.
+* A Lit Surfaces Part allows the brightness of the surfaces of a part to be rendered more accurately to light sources.
+* This is my attempt at making part surfaces look less jarring when compared to dark shadows.
+* The settings that control the color of part surfaces can be found inside of the ``Shadow`` module inside of the inserted ``Shadow_Modules.rbxmx`` file.
 
 ### Demo:
 ![Group 1](https://user-images.githubusercontent.com/103084464/205473222-2a12b90c-f2e0-41b8-bf54-d5a7161b5eba.png)
