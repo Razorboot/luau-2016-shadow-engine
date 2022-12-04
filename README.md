@@ -134,3 +134,8 @@ local rootManifolds = Shadow.getRootManifolds()
 ```lua
 rootManifolds = Shadow.updateRootManifolds(rootManifolds)
 ```
+
+### Experimental Mode:
+* Inside of the ``Shadow`` module, you'll find an option called ``useExperimental``.
+* This simply adds the ability for shadows to be rendered when Light Source to vertex rays don't intersect with the Shadow Canvas plane.
+* This option is buggy, so I suggest use it with caution.
