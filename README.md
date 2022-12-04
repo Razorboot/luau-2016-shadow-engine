@@ -1,4 +1,4 @@
-# Roblox-2016-Shadow-Engine
+# Roblox-2016-Multi-Surface-Shadow-Engine
 
 ## Description:
 Built off of Egomooses Shadow Silhouttes Tutorial: https://scriptinghelpers.org/guides/silhouettes-and-shadows
@@ -31,8 +31,9 @@ Description:
 * Here is a visual of a fully-rendered scene and it's corresponding parts:
 ![Group 1](https://user-images.githubusercontent.com/103084464/205473222-2a12b90c-f2e0-41b8-bf54-d5a7161b5eba.png)
 * Videos showcasing the engine:
-https://user-images.githubusercontent.com/103084464/205485232-1dc4c8b8-0f69-44d7-b944-3ffa7babeeb2.mov
-https://user-images.githubusercontent.com/103084464/205485252-901e70bb-20ae-4d15-a0d4-32d09d1dd505.mov
+![ezgif com-gif-maker (2)](https://user-images.githubusercontent.com/103084464/205485358-7d54b807-034b-492c-b648-823228a8d3fa.gif)
+![ezgif com-gif-maker (3)](https://user-images.githubusercontent.com/103084464/205485469-d6303061-9256-471b-8908-d844c90755e0.gif)
+
 
 
 ## Getting Started:
