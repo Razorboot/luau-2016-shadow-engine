@@ -3,7 +3,6 @@
 	Created By: Razorboot
 	Last Modified: 12/3/22
 	Description: 
-		- KEEP IN MIND, this is meant to be used with the other modules in the RBXL file.
 		- An attempt at an optimized raycasted shadow-polygon implementation. 
 		- This is a complex set of object oriented mini-classes and polygonal algorithms for:
 			- accurate n-gon to triangle conversion,
@@ -50,6 +49,14 @@ local udim2 = UDim2.new
 local c3 = Color3.new
 
 
+--# Instance References
+local hasShadowColorInstance = script:WaitForChild("hasShadowColor")
+local hasAmbientInstance = script:WaitForChild("hasAmbient")
+local hasShadowBrightnessInstance = script:WaitForChild("hasShadowBrightness")
+local useLightingPropertiesInstance = script:WaitForChild("useLightingProperties")
+local useExperimentalInstance = script:WaitForChild("useExperimental")
+
+
 --# Point
 local Shadow = {}
 
@@ -61,12 +68,20 @@ Shadow.AllLightSources = {}
 --# Misc Variables
 local transparency = 0.5
 local ambient = 0.25
-local useLightingProperties = script.useLightingProperties.Value
-if script.hasAmbient.Value >= 0 then ambient = script.hasAmbient.Value end
-if script.hasShadowBrightness.Value >= 0 then transparency = script.hasShadowBrightness.Value end
+local useLightingProperties = useLightingPropertiesInstance.Value
+local shadowColor = hasShadowColorInstance.Value
+local shadowColorIsMemberOfLighting = BaseFuncs.hasProperty(Lighting, "ShadowColor")
+
+if hasAmbientInstance.Value >= 0 then ambient = hasAmbientInstance.Value end
+if hasShadowBrightnessInstance.Value >= 0 then transparency = hasShadowBrightnessInstance.Value end
+shadowColor = hasShadowColorInstance.Value
+
 if useLightingProperties == true then
-	ambient = Lighting.Ambient.magnitude + Lighting.OutdoorAmbient.magnitude
-	script.hasShadowBrightness = Lighting.Brightness
+	ambient = vec3(Lighting.Ambient.r, Lighting.Ambient.g, Lighting.Ambient.b) + vec3(Lighting.OutdoorAmbient.r, Lighting.OutdoorAmbient.g, Lighting.OutdoorAmbient.b)
+	transparency = math.min(math.min(Lighting.Brightness, 5), 1)
+	if shadowColorIsMemberOfLighting then
+		shadowColor = Lighting.ShadowColor
+	end
 end
 	
 	
@@ -313,39 +328,43 @@ local function getNearbyLightSources(point, offset)
 	return lightSources
 end
 
---[[local function getNearbyLightSourcesOLD(point, offset)
-	local lightSources = {}
-	offset = offset or 0
-	
-	for _, light in pairs(BaseFuncs.GetDescendants(workspace)) do
-		if light:IsA("PointLight") or light:IsA("SpotLight") then
-			local lightRange = light:FindFirstChild("hasShadowRange")
-			if lightRange then lightRange = lightRange.Value else lightRange = light.Range end
-			
-			if (light.Parent.Position - point).magnitude < (lightRange + offset) then
-				table.insert(lightSources, light)
-			end
-		end
-	end
-	
-	return lightSources
-end]]
-
 
 --# Ray to Plane intersection
-function planeIntersect(point, vector, origin, normal)
-	origin = origin - (normal*0.25)
+function planeIntersectClipped(point, vector, origin, normal)
+	local rpoint = point - origin;
+	local vecDotNorm = vector:Dot(normal)
+	local rDotNorm = rpoint:Dot(normal)
 	
+	local t = -rDotNorm / vecDotNorm;	
+	if (rDotNorm / vecDotNorm) <= -0.1 then
+		return point + t * vector;
+	end
+end
+
+function planeIntersect(point, vector, origin, normal, overeach)
 	local rpoint = point - origin;
 	local vecDotNorm = vector:Dot(normal)
 	local rDotNorm = rpoint:Dot(normal)
 	
 	local t = -rDotNorm / vecDotNorm;	
 	
-	if (rDotNorm / vecDotNorm) > -0.1 then
-		return point + t * vector, t;
+	local hit1 = point + t * vector
+	local hit2 = nil
+	if overeach == true then
+		hit2 = planeIntersectClipped(point + vector * -999999, normal, origin, normal)
 	end
+	if (rDotNorm / vecDotNorm) <= -0.1 then
+		if hit2 == nil then hit1 = nil end
+	end
+	
+	return hit1, hit2;
 end;
+
+function planeProject(point, v, orig, normal)
+	local v = point - orig
+	local dist = v * normal
+	return point - dist * normal
+end
 
 
 --# Implementation Functions
@@ -435,20 +454,8 @@ local function newLitCanvases(part)
 	local lightSources = getNearbyLightSources(part.Position, part.Size.magnitude)
 	partManifold.lightSources = {}
 	
-	--shadowManifold.li = li
-	--shadowManifold.lManifolds = shadowManifold.liManifolds[shadowManifold.li]
-	
 	for _, li in pairs(lightSources) do
-		--local lManifold = Shadow.AllLightSources[li]
-		
 		table.insert(partManifold.lightSources, li)
-		
-		--[[table.insert(partManifold.lightSources, {
-			part = lManifold.part,
-			pos = lManifold.part.Position,
-			light = lManifold.instance,
-			dist = (lManifold.part.Position - part.Position)
-		})]]
 	end
 	
 	-- Create SurfaceGui for each Surface for lighting
@@ -459,7 +466,7 @@ local function newLitCanvases(part)
 		newCanvas.Parent = part
 		
 		local frame = Instance.new("Frame")
-		frame.BackgroundColor3 = Lighting.ShadowColor
+		frame.BackgroundColor3 = shadowColor
 		frame.Size = udim2(1, 0, 1, 0)
 		frame.Parent = newCanvas
 		frame.BorderSizePixel = 0
@@ -583,7 +590,7 @@ local function updateLitPartManifolds(litPartManifolds, onChange)
 				litPartManifolds[pi].canvasManifolds[ci].cover.BackgroundTransparency = accumulatedBrightness
 			end
 			
-			litPartManifolds[pi].canvasManifolds[ci].cover.BackgroundColor3 = Lighting.ShadowColor
+			litPartManifolds[pi].canvasManifolds[ci].cover.BackgroundColor3 = shadowColor
 		end
 		
 	end
@@ -607,6 +614,27 @@ function getTopLeft(hit, sid)
 			hit.CFrame:vectorToWorldSpace(-up), modi;
 end;
 
+function isOvereached(normal, highestPoint, lowestPoint, point)
+	if not highestPoint or not lowestPoint then return false end	
+		
+	local projHighestPoint = highestPoint
+	local projlowestPoint = lowestPoint
+	local projLightPos = normal * point
+
+	local xMet = false
+	local yMet = false
+	local zMet = false		
+	
+	if (projLightPos.x >= projlowestPoint.x) and (projLightPos.x <= projHighestPoint.x) then xMet = true end
+	if (projLightPos.y >= projlowestPoint.y) and (projLightPos.y <= projHighestPoint.y) then yMet = true end
+	if (projLightPos.z >= projlowestPoint.z) and (projLightPos.z <= projHighestPoint.y) then zMet = true end
+	--[[print(tostring("highest: ")..projlowestPoint.y)
+	print(tostring("light: ")..projLightPos.y)]]
+	--print((projLightPos.y >= projlowestPoint.y))
+	--print("---------------------")
+	if (xMet == true and yMet == true and zMet == true) then return true else return false end
+end
+
 function createShadowMesh(shadowManifold, canvasManifold)
 	-- Clean up old Instances
 	for _, tri in pairs(shadowManifold.instanceStorage) do
@@ -621,21 +649,40 @@ function createShadowMesh(shadowManifold, canvasManifold)
 	local origin = canvasManifold.part.Position + normal * (lnormal * canvasManifold.part.Size/2).magnitude;
 	local tlc, size, right, down, modi = getTopLeft(canvasManifold.part, sid);
 	local noPos = false
+	local lightPos = Shadow.AllLightSources[shadowManifold.li].part.Position
 	
 	local points = {}
 	
-	--game.Workspace.CurrentCamera:ClearAllChildren();
-	--canvasManifold.canvas:ClearAllChildren();
+	local overeach = false
+	if useExperimentalInstance.Value == true then
+		local highestPoint, lowestPoint
+		for _, corner in pairs(shadowManifold.corners) do
+			local cornerMultNorm = corner * normal
+			
+			if highestPoint and lowestPoint then
+				if cornerMultNorm.x > highestPoint.x or cornerMultNorm.y > highestPoint.y or cornerMultNorm.z > highestPoint.z then
+					highestPoint = cornerMultNorm
+				end
+				if cornerMultNorm.x < lowestPoint.x or cornerMultNorm.y < lowestPoint.y or cornerMultNorm.z < lowestPoint.z then
+					lowestPoint = cornerMultNorm
+				end
+			end
+			
+			if not highestPoint and not lowestPoint then
+				highestPoint, lowestPoint = cornerMultNorm, cornerMultNorm
+			end
+		end
+		overeach = isOvereached(normal, highestPoint, lowestPoint, lightPos)
+	end
 	
 	for _, corner in next, shadowManifold.corners do
-		local lightPos = Shadow.AllLightSources[shadowManifold.li].part.Position
-		
 		local lightVector = (lightPos - corner).unit
 		local dot = normal:Dot(lightVector)
 		
 		-- Only render shadows for surface if it can be seen from the light source
 		if dot >= 0 then
-			local pos = planeIntersect(corner, lightVector, origin, normal);
+			--local pos = planeProject(corner, lightVector, origin, normal, overeach)
+			local pos, pos2 = planeIntersect(corner, lightVector, origin, normal, overeach)
 			
 			if pos then 
 				noPos = true
@@ -645,34 +692,24 @@ function createShadowMesh(shadowManifold, canvasManifold)
 				x, y = modi < 1 and y or x, modi < 1 and x or y;
 				
 				local csize = canvasManifold.canvas.CanvasSize;
-				local absPosition = Vector2.new(x * csize.x, y * csize.y);
-				
-				if script.inDebugMode.Value == true then
-					local intersectPart = Instance.new("Part", shadowManifold.instanceStorage)
-					intersectPart.Locked = true
-					intersectPart.Anchored, intersectPart.CanCollide = true, false
-					intersectPart.FormFactor = Enum.FormFactor.Custom
-					intersectPart.Size = vec3(0.5, 0.5, 0.5)
-					intersectPart.BrickColor = BrickColor.new("Really red")
-					intersectPart.CFrame = cf(absPosition)
-					local meshInstance = Instance.new("SpecialMesh", intersectPart)
-					meshInstance.MeshType = Enum.MeshType.Sphere
-					meshInstance.Scale = vec3(1, 1, 1)
-					
-					local rayPart = Instance.new("Part", shadowManifold.instanceStorage)
-					rayPart.Locked = true
-					rayPart.Anchored, rayPart.CanCollide = true, false
-					rayPart.BrickColor = BrickColor.new("Lime green")
-					rayPart.FormFactor = Enum.FormFactor.Custom
-					rayPart.Size = vec3((origin - absPosition).magnitude, 0.25, 0.25)
-					rayPart.CFrame = cf(absPosition + ((origin - absPosition)*0.5), absPosition) * CFrame.Angles(0, math.rad(90), 0)
-					local rayMeshInstance = Instance.new("SpecialMesh", rayPart)
-					rayMeshInstance.MeshType = Enum.MeshType.Cylinder
-					rayMeshInstance.Scale = vec3(1, 0.25, 0.25)
-				end			
+				local absPosition = Vector2.new(x * csize.x, y * csize.y);		
 				
 				table.insert(points, absPosition);
 			end
+			
+			if pos2 then 
+				noPos = true
+				
+				local relative = pos2 - tlc.p;
+				local x, y = right:Dot(relative)/size.x, down:Dot(relative)/size.y;
+				x, y = modi < 1 and y or x, modi < 1 and x or y;
+				
+				local csize = canvasManifold.canvas.CanvasSize;
+				local absPosition = Vector2.new(x * csize.x, y * csize.y);		
+				
+				table.insert(points, absPosition);
+			end
+			
 		end
 	end;
 	
@@ -698,7 +735,7 @@ function createShadowMesh(shadowManifold, canvasManifold)
 		
 			for i, t in pairs(finalTris) do
 				if t[1] and t[2] and t[3] then
-					local ta, tb = Tris(canvasManifold.canvas, Lighting.ShadowColor, transparency, unpack(t))
+					local ta, tb = Tris(canvasManifold.canvas, shadowColor, transparency, unpack(t))
 					table.insert(shadowManifold.instanceStorage, ta);
 					table.insert(shadowManifold.instanceStorage, tb);
 				end
@@ -707,81 +744,6 @@ function createShadowMesh(shadowManifold, canvasManifold)
 	end
 	
 	return shadowManifold
-end
-
-local function createShadowMeshOLD(shadowManifold, canvasManifold)
-	-- Clean up old Instances
-	for _, tri in pairs(shadowManifold.instanceStorage) do
-		tri:Destroy()
-	end
-	shadowManifold.instanceStorage = {}
-	
-	-- Create shadow mesh
-	local shadowVertices = {}
-				
-	for _, corner in pairs(shadowManifold.corners) do
-		-- Cast ray from light source position through vertex/corner
-		corner = vec3(corner.x, corner.y, corner.z)
-		local cornerToPos = (corner - shadowManifold.lightPos)
-		
-		local cornerRayResults = {}
-		local sid = shadowManifold.canvas.Face
-		local lnormal = Vector3.FromNormalId(sid)
-		local normal = canvasManifold.canvas.CFrame:vectorToWorldSpace(lnormal)
-		local origin = canvasManifold.canvas.Position + normal * (lnormal * canvasManifold.canvas.Size/2).magnitude
-		cornerRayResults.Pos = planeIntersect(corner, (shadowManifold.lightPos - corner).unit, origin, normal)
-		
-		
-		if cornerRayResults.Pos then
-			-- Set pos slightly under ground
-			--cornerRayResults.Pos = cornerRayResults.Pos - (cornerRayResults.Norm * 0.15)
-			
-			-- Create parts to represent shadowmesh vertices
-			if script.inDebugMode.Value == true then
-				local intersectPart = Instance.new("Part", shadowManifold.instanceStorage)
-				intersectPart.Locked = true
-				intersectPart.Anchored, intersectPart.CanCollide = true, false
-				intersectPart.FormFactor = Enum.FormFactor.Custom
-				intersectPart.Size = vec3(0.5, 0.5, 0.5)
-				intersectPart.BrickColor = BrickColor.new("Really red")
-				intersectPart.CFrame = cf(cornerRayResults.Pos)
-				local meshInstance = Instance.new("SpecialMesh", intersectPart)
-				meshInstance.MeshType = Enum.MeshType.Sphere
-				meshInstance.Scale = vec3(1, 1, 1)
-				
-				local rayPart = Instance.new("Part", shadowManifold.instanceStorage)
-				rayPart.Locked = true
-				rayPart.Anchored, rayPart.CanCollide = true, false
-				rayPart.BrickColor = BrickColor.new("Lime green")
-				rayPart.FormFactor = Enum.FormFactor.Custom
-				rayPart.Size = vec3((origin - cornerRayResults.Pos).magnitude, 0.25, 0.25)
-				rayPart.CFrame = cf(cornerRayResults.Pos + ((origin - cornerRayResults.Pos)*0.5), cornerRayResults.Pos) * CFrame.Angles(0, math.rad(90), 0)
-				local rayMeshInstance = Instance.new("SpecialMesh", rayPart)
-				rayMeshInstance.MeshType = Enum.MeshType.Cylinder
-				rayMeshInstance.Scale = vec3(1, 0.25, 0.25)
-			end
-		end
-	end
-	
-	-- Check if enough vertices are present
-	if #shadowVertices < 3 then return false end
-	
-	-- "Fill" in polygons
-	local triangles = Deluanay.triangulate(unpack(shadowVertices))
-	local y = shadowVertices[1].Z
-	
-	if triangles then
-		for _, t in next, triangles do
-			if t[1] and t[2] and t[3] then
-				local va = vec3(t[1].x, y, t[1].y)
-				local vb = vec3(t[2].x, y, t[2].y)
-				local vc = vec3(t[3].x, y, t[3].y)
-				
-				-- Create triangle
-				local partA, partB = Tris.drawTriangle(va, vb, vc, 0, shadowManifold.instanceStorage, script.inDebugMode.Value)
-			end
-		end
-	end
 end
 
 
@@ -804,11 +766,16 @@ end
 local num1 = 0
 function Shadow.updateRootManifolds(rootManifolds)
 	-- Update the lighting value settings
-	if script.hasAmbient.Value >= 0 then ambient = script.hasAmbient.Value end
-	if script.hasShadowBrightness.Value >= 0 then transparency = script.hasShadowBrightness.Value end
+	if hasAmbientInstance.Value >= 0 then ambient = hasAmbientInstance.Value end
+	if hasShadowBrightnessInstance.Value >= 0 then transparency = hasShadowBrightnessInstance.Value end
+	shadowColor = hasShadowColorInstance.Value
+	
 	if useLightingProperties == true then
-		ambient = Lighting.Ambient.magnitude + Lighting.OutdoorAmbient.magnitude
-		script.hasShadowBrightness = Lighting.Brightness
+		ambient = vec3(Lighting.Ambient.r, Lighting.Ambient.g, Lighting.Ambient.b) + vec3(Lighting.OutdoorAmbient.r, Lighting.OutdoorAmbient.g, Lighting.OutdoorAmbient.b)
+		transparency = math.min(math.min(Lighting.Brightness, 5), 1)
+		if shadowColorIsMemberOfLighting then
+			shadowColor = Lighting.ShadowColor
+		end
 	end
 
 	-- Interate through manifolds
@@ -952,7 +919,7 @@ end
 function Shadow.setPartProperty(part, property, bool)
 	if part:IsA("BasePart") then
 		if type(bool) ~= "table" then
-			if property ~= "isShadowCanvasAll" and property ~= "isShadowCanvasLeft" and property ~= property ~= "isShadowCanvasRight" and property ~= "isShadowCanvasTop" and property ~= "isShadowCanvasBottom" and property ~= "isShadowCanvasFront" and property ~= "isShadowCanvasBack" then
+			if property ~= "isShadowCanvasAll" and property ~= "isShadowCanvasLeft" and property ~= "isShadowCanvasRight" and property ~= "isShadowCanvasTop" and property ~= "isShadowCanvasBottom" and property ~= "isShadowCanvasFront" and property ~= "isShadowCanvasBack" then
 				local propVal = part:FindFirstChild(property)
 				
 				if bool == false then
