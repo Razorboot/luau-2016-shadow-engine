@@ -78,7 +78,32 @@ Shadow.setPartProperty(Part, "isShadowOccluder", true)
 * A Lit Surfaces Part allows the brightness of the surfaces of a part to be rendered more accurately to light sources.
 * This is my attempt at making part surfaces look less jarring when compared to dark shadows.
 * The settings that control the color of part surfaces can be found inside of the ``Shadow`` module inside of the inserted ``Shadow_Modules.rbxmx`` file.
+* You can make a part or model have Lit Surfaces using:
+```lua
+-- Allow the surfaces of a part to be lit
+Shadow.setPartProperty(Part, "hasLitSurfaces", true)
+-- Allow the surfaces of a model to be lit
+Shadow.setModelProperty(Part, "hasLitSurfaces", true)
+```
+* Exactly as the previous function, setting the final parameter to ``false`` will disable the Lit Surfaces feature for the object.
+
+### Light Sources and :
+* Light Sources is a list of Lights in your scene that you want to cast shadows and influence Lit Surfaces.
+* You can insert all light sources in a container using:
+```lua
+Shadow.getAllLightSources(workspace)
+```
+* You can insert and remove a specific light source into your scene using:
+```lua
+Shadow.insertLightSource(light)
+Shadow.removeLightSource(light)
+```
+* Light Sources need to be updated to account for changes in position and range, you can also update all light sources using:
+```lua
+Shadow.updateAllLightSources()
+```
 
 ### Demo:
+* Here is a visual of a fully-rendered scene and it's corresponding parts:
 ![Group 1](https://user-images.githubusercontent.com/103084464/205473222-2a12b90c-f2e0-41b8-bf54-d5a7161b5eba.png)
 
