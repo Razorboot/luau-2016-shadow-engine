@@ -51,14 +51,14 @@ local Shadow = require(Modules:WaitForChild("Shadow"))
 * They are the surfaces of a part that can have shadows projected onto them.
 * Shadow Canvases are flat planes that can be applied to any face of a Part.
 * Shadow Canvases can be added to a part or model using:
- * Setting the final parameter to ``false`` will delete a pre-existing canvas.
- * ``"isShadowCanvasAll"`` is one out of 6 surfaces. You can replace ``All`` in ``isShadowCanvasAll`` with either Top, Bottom, Right, Left, Front, or Back in order to add a Shadow Canvas to a single surface.
  ```lua
  -- Add canvas to all surfaces of a part
  Shadow.setModelProperty(Part, "isShadowCanvasAll", true)
  -- Add canvas to all surfaces of a model
  Shadow.setPartProperty(Part, "isShadowCanvasAll", true)
  ```
+ * Setting the final parameter to ``false`` will delete a pre-existing canvas.
+ * ``"isShadowCanvasAll"`` is one out of 6 surfaces. You can replace ``All`` in ``isShadowCanvasAll`` with either Top, Bottom, Right, Left, Front, or Back in order to add a Shadow Canvas to a single surface.
 
 ### Occluders:
 * Occluders are the Parts that block light sources, and thus cast shadows onto shadow canvases.
