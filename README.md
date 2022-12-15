@@ -42,7 +42,7 @@ Created By: Razorboot
 3. If you plan on using the engine server-sided, right click on ``Workspace``, select ``Insert From File``, and select the ``Shadow_Modules.rbxmx`` file.
 
 ### If you plan on using the place file:
-1. First, download the ``Shadow_TestPlace.rbxl`` file.
+1. First, download the ``ShadowTest_GloballLight_Demo.rbxl`` file.
 2. If you plan on using the engine client-sided, go into ``ServerScriptService`` --> ``Scripts`` --> ``Main``. 
 3. Cut the code from this script into a ``LocalScript`` and read the comments inside of the script to know what to uncomment. 
 4. Place the new script back into the ``Scripts`` folder. 
