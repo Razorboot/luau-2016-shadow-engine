@@ -2,7 +2,6 @@
 
 ## Description:
 Built off of Egomooses Shadow Silhouttes Tutorial: https://scriptinghelpers.org/guides/silhouettes-and-shadows
-Created By: Razorboot
 * An attempt at an optimized raycasted shadow-polygon implementation. 
 * This is a complex set of object oriented mini-classes and polygonal algorithms for:
   * accurate n-gon to triangle conversion,
