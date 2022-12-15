@@ -25,6 +25,7 @@
 		- A mini lighting engine for rendering part surfaces is now added and functional in real-time!
 			- This supports multiple lighting options you now have control over in Shadow script!
 		- Shadows are now Surface-Gui based for more optimal results.
+		- Global Lighting is now supported! Local lighting can also be disabled/enabled in module settings.
 --]]
 
 
@@ -38,6 +39,7 @@ local BaseFuncs = require(Modules:WaitForChild("BaseFuncs")) -- My own library w
 local Poly = require(script:WaitForChild("Polygon")) -- My own polygon library for clipping polygons :]
 local Hull = require(script:WaitForChild("GiftWrapHull")) -- Used to order polygon vertices
 local Tris = require(script:WaitForChild("Triangle")) -- Used to create Instances of polygons as ImageLabels
+local Deluany = require(script:WaitForChild("Deluany")) -- Used to create Instances of polygons as ImageLabels
 
 
 --# Math references (optimization)
@@ -53,6 +55,9 @@ local c3 = Color3.new
 local hasShadowColorInstance = script:WaitForChild("hasShadowColor")
 local hasAmbientInstance = script:WaitForChild("hasAmbient")
 local hasShadowBrightnessInstance = script:WaitForChild("hasShadowBrightness")
+local hasGlobalShadowBrightnessInstance = script:WaitForChild("hasGlobalShadowBrightness")
+local hasGlobalLightingInstance = script:WaitForChild("hasGlobalLighting")
+local hasLocalLightingInstance = script:WaitForChild("hasLocalLighting")
 local useLightingPropertiesInstance = script:WaitForChild("useLightingProperties")
 local useExperimentalInstance = script:WaitForChild("useExperimental")
 
@@ -71,21 +76,55 @@ local ambient = 0.25
 local useLightingProperties = useLightingPropertiesInstance.Value
 local shadowColor = hasShadowColorInstance.Value
 local shadowColorIsMemberOfLighting = BaseFuncs.hasProperty(Lighting, "ShadowColor")
+local globalLightingEnabled = hasGlobalLightingInstance.Value
+local localLightingEnabled = hasLocalLightingInstance.Value
 
-if hasAmbientInstance.Value >= 0 then ambient = hasAmbientInstance.Value end
-if hasShadowBrightnessInstance.Value >= 0 then transparency = hasShadowBrightnessInstance.Value end
-shadowColor = hasShadowColorInstance.Value
-
-if useLightingProperties == true then
-	ambient = vec3(Lighting.Ambient.r, Lighting.Ambient.g, Lighting.Ambient.b) + vec3(Lighting.OutdoorAmbient.r, Lighting.OutdoorAmbient.g, Lighting.OutdoorAmbient.b)
-	transparency = math.min(math.min(Lighting.Brightness, 5), 1)
-	if shadowColorIsMemberOfLighting then
-		shadowColor = Lighting.ShadowColor
-	end
-end
+local prevSunDir = Lighting:GetSunDirection()
+local sunUpdateNeeded = false
+local localUpdateNeeded = false
 	
 	
 --# Local Functions
+local function updateLighting()
+	useLightingProperties = useLightingPropertiesInstance.Value
+	
+	if hasAmbientInstance.Value >= 0 then ambient = hasAmbientInstance.Value end
+	if hasShadowBrightnessInstance.Value >= 0 then transparency = hasShadowBrightnessInstance.Value end
+	shadowColor = hasShadowColorInstance.Value
+	
+	if Lighting:GetSunDirection() ~= prevSunDir then
+		sunUpdateNeeded = true
+	else
+		sunUpdateNeeded = false
+	end
+	
+	if globalLightingEnabled ~= hasGlobalLightingInstance.Value then
+		globalLightingEnabled = hasGlobalLightingInstance.Value
+		sunUpdateNeeded = true
+	end
+	
+	if hasLocalLightingInstance.Value ~= localLightingEnabled then
+		localLightingEnabled = hasLocalLightingInstance.Value
+		localUpdateNeeded = true
+	else
+		localUpdateNeeded = false
+	end
+
+	if useLightingProperties == true then
+		ambient = vec3(Lighting.Ambient.r, Lighting.Ambient.g, Lighting.Ambient.b) + vec3(Lighting.OutdoorAmbient.r, Lighting.OutdoorAmbient.g, Lighting.OutdoorAmbient.b)
+		transparency = math.min(math.min(Lighting.Brightness, 5), 1)
+		if globalLightingEnabled ~= Lighting.GlobalShadows then
+			globalLightingEnabled = Lighting.GlobalShadows
+			sunUpdateNeeded = true
+		end
+		globalLightingEnabled = Lighting.GlobalShadows
+		if shadowColorIsMemberOfLighting then
+			shadowColor = Lighting.ShadowColor
+		end
+	end
+end
+
+updateLighting()
 
  
 -- Vertex Information for unique cases
@@ -132,18 +171,6 @@ local lefts = {
 	[Enum.NormalId.Front] = Vector3.FromNormalId(Enum.NormalId.Right);
 	[Enum.NormalId.Left] = Vector3.FromNormalId(Enum.NormalId.Front);
 };	
-
-function getEdgesSphere(part)
-	-- get the corners
-	local size, corners = part.Size, {}
-	for i, vertex in pairs(sphereVertices) do
-		corners[i] = {}
-		corners[i].pos = vec3(vertex[1], vertex[2], vertex[3]) * size
-		corners[i].normal = corners[i].pos.unit * -1
-	end
-	
-	return corners
-end
 
 function getEdges(part)
     local connects = {}
@@ -217,41 +244,69 @@ function getEdges(part)
     return connects
 end
 
-function getCorners(part, sourcePos)
+function getCorners(part, sourcePos, isGlobal)
     local lcorners = {}
     for k, set in next, getEdges(part) do
         local passCount = 0
         -- same calculation as the 2D one
-        for i = 1, 3 do
-            local lightVector = (sourcePos - set.corner).unit
+		for i = 1, 3 do
+			local lightVector
+			if isGlobal == true then
+				lightVector = sourcePos
+			else
+				lightVector = (sourcePos - set.corner).unit
+			end
+			
             local dot = set[i].vector:Dot(lightVector)
             if dot >= 0 then
                 passCount = passCount + 1
             end
         end
         -- light can't shine on all 3 or none of the surfaces, must be inbetween
-        if passCount > 0 and passCount < 3 then
+       	if passCount > 0 and passCount < 3 then
             table.insert(lcorners, set.corner)
         end
     end
     return lcorners
 end
 
-function getCornersSphere(part, sourcePos)
+function getEdgesSphere(part)
+	-- get the corners
+	local size, corners = part.Size, {}
+	
+	for i, vertex in pairs(sphereVertices) do
+		local newCorner = {}
+		local unMarkedPos = vec3(vertex[1], vertex[2], vertex[3])
+		newCorner.pos = part.Position + (unMarkedPos * (size))
+		newCorner.normal = unMarkedPos.unit
+		table.insert(corners, newCorner)
+	end
+	
+	return corners
+end
+
+function getCornersSphere(part, sourcePos, isGlobal)
 	local lcorners = {}
 	
 	for _, corner in pairs(getEdgesSphere(part)) do
 		local passCount = 0
-	
-		local lightVector = (sourcePos - corner.pos).unit
+		
+		local lightVector
+		if isGlobal == true then
+			lightVector = sourcePos
+		else
+			lightVector = (sourcePos - corner.pos).unit
+		end
+		
         local dot = corner.normal:Dot(lightVector)
         if dot >= 0 then
             passCount = passCount + 1
         end
+
 		-- light can't shine on all 3 or none of the surfaces, must be inbetween
-        if passCount > 0 --[[and passCount < 1]] then
-        	table.insert(lcorners, corner)
-        end
+		if passCount >= 0 then
+			table.insert(lcorners, corner.pos)
+	   end
 	end
 	
 	return lcorners
@@ -341,7 +396,7 @@ function planeIntersectClipped(point, vector, origin, normal)
 	end
 end
 
-function planeIntersect(point, vector, origin, normal, overeach)
+--[[function planeIntersect(point, vector, origin, normal, overeach)
 	local rpoint = point - origin;
 	local vecDotNorm = vector:Dot(normal)
 	local rDotNorm = rpoint:Dot(normal)
@@ -358,6 +413,22 @@ function planeIntersect(point, vector, origin, normal, overeach)
 	end
 	
 	return hit1, hit2;
+end;]]
+
+function planeIntersect(point, vector, origin, normal, overeach)
+	local rpoint = point - origin;
+	local vecDotNorm = vector:Dot(normal)
+	local rDotNorm = rpoint:Dot(normal)
+	
+	local t = -rDotNorm / vecDotNorm;	
+	
+	local hit1 = point + t * vector
+	
+	if (rDotNorm / vecDotNorm) <= -0.1 then
+		hit1 = nil
+	end
+	
+	return hit1;
 end;
 
 function planeProject(point, v, orig, normal)
@@ -400,12 +471,26 @@ local function newRootManifold(SurfaceGui)
 				local shadowManifold = {}
 				shadowManifold.li = li
 				shadowManifold.brightness = 1
-				shadowManifold.corners = getCorners(occluderManifold.occluder, Shadow.AllLightSources[li].part.Position)
+				if occluderManifold.occluder.Shape == Enum.PartType.Ball then
+					shadowManifold.corners = getCornersSphere(occluderManifold.occluder, Shadow.AllLightSources[shadowManifold.li].part.Position)
+				else
+					shadowManifold.corners = getCorners(occluderManifold.occluder, Shadow.AllLightSources[shadowManifold.li].part.Position)
+				end
 				shadowManifold.instanceStorage = {}
 				
 				-- Apply current SM to shadowManifolds
 				table.insert(occluderManifold.shadowManifolds, shadowManifold)
 			end
+			
+			-- Global Lighting
+			occluderManifold.globalShadowManifold = {}
+			occluderManifold.globalShadowManifold.brightness = 1
+			if occluderManifold.occluder.Shape == Enum.PartType.Ball then
+				occluderManifold.globalShadowManifold.corners = getCornersSphere(occluderManifold.occluder, Lighting:GetSunDirection(), true)
+			else
+				occluderManifold.globalShadowManifold.corners = getCorners(occluderManifold.occluder, Lighting:GetSunDirection(), true)
+			end
+			occluderManifold.globalShadowManifold.instanceStorage = {}
 			
 			-- Apply to pre-existing parent manifold
 			table.insert(canvasManifold.occluderManifolds, occluderManifold)
@@ -421,19 +506,23 @@ local function getRootManifolds()
 	
 	for _, instance in pairs(BaseFuncs.GetDescendants(workspace)) do
 		if instance:IsA("SurfaceGui") and instance:FindFirstChild("isShadowCanvas") then
-			local canvasManifold = newRootManifold(instance)
-			
-			-- Parent to root manifolds
-			table.insert(rootManifolds, canvasManifold)
+			if instance.Parent.Shape ~= Enum.PartType.Ball then
+				local canvasManifold = newRootManifold(instance)
+				
+				-- Parent to root manifolds
+				table.insert(rootManifolds, canvasManifold)
+			end
 		end
 	end
 	
 	for _, instance in pairs(BaseFuncs.GetDescendants(workspace.CurrentCamera)) do
 		if instance:IsA("SurfaceGui") and instance:FindFirstChild("isShadowCanvas") then
-			local canvasManifold = newRootManifold(instance)
-			
-			-- Parent to root manifolds
-			table.insert(rootManifolds, canvasManifold)
+			if instance.Parent.Shape ~= Enum.PartType.Ball then
+				local canvasManifold = newRootManifold(instance)
+				
+				-- Parent to root manifolds
+				table.insert(rootManifolds, canvasManifold)
+			end
 		end
 	end
 	
@@ -493,13 +582,13 @@ local function getLitPartManifolds()
 	
 	-- Generate ALL manifolds
 	for _, instance in pairs(BaseFuncs.GetDescendants(workspace)) do
-		if instance:FindFirstChild("hasLitSurfaces") then
+		if instance:FindFirstChild("hasLitSurfaces") and instance.Shape ~= Enum.PartType.Ball then
 			table.insert(litPartManifolds, newLitCanvases(instance))
 		end
 	end
 	
 	for _, instance in pairs(BaseFuncs.GetDescendants(workspace.CurrentCamera)) do
-		if instance:FindFirstChild("hasLitSurfaces") then
+		if instance:FindFirstChild("hasLitSurfaces") and instance.Shape ~= Enum.PartType.Ball then
 			table.insert(litPartManifolds, newLitCanvases(instance))
 		end
 	end
@@ -537,33 +626,11 @@ local function updateLitPartManifolds(litPartManifolds, onChange)
 		-- Detect and reset lights if the position between a lightsource and the part has changed
 		local lightPosChanged = false
 		
-		--[[for li, lightSource in pairs(partManifold.lightSources) do
-			if onChange == true then
-				if (lightSource.pos ~= lightSource.part.Position) then
-					lightPosChanged = true
-					break
-				end
-			else
-				lightPosChanged = true
-			end
-		end]]
-		
 		for _, li in pairs(partManifold.lightSources) do
 			if Shadow.AllLightSources[li].posChanged == true then lightPosChanged = true break end
 		end
 		
-		if posChanged == true or lightPosChanged == true then
-			--[[local lightSources = getNearbyLightSources(partManifold.part.Position, partManifold.part.Size.magnitude)
-			litPartManifolds[pi].lightSources = {}
-			for _, ls in pairs(lightSources) do
-				table.insert(partManifold.lightSources, {
-					part = ls.Parent,
-					pos = ls.Parent.Position,
-					light = ls,
-					dist = (ls.Parent.Position - partManifold.part.Position)
-				})
-			end]]
-			
+		if posChanged == true or lightPosChanged == true then	
 			litPartManifolds[pi].lightSources = {}
 			for _, li in pairs(getNearbyLightSources(partManifold.part.Position, partManifold.part.Size.magnitude)) do
 				table.insert(litPartManifolds[pi].lightSources, li)
@@ -575,7 +642,16 @@ local function updateLitPartManifolds(litPartManifolds, onChange)
 		for ci, canvasManifold in pairs(partManifold.canvasManifolds) do 
 			local accumulatedBrightness = 1
 			
-			if posChanged == true or lightPosChanged == true then
+			if (sunUpdateNeeded == true) or posChanged == true then
+				if globalLightingEnabled == true then
+					local v = Lighting:GetSunDirection()
+					local brightness = math.max(0, canvasManifold.normal:Dot(v))
+
+					accumulatedBrightness = (1 - accumulatedBrightness) + ambient + (brightness * (1 - (transparency) ))
+				end
+			end
+			
+			if (posChanged == true or lightPosChanged == true) and localLightingEnabled == true then
 				local canvasWorldSpace = litPartManifolds[pi].canvasManifolds[ci].canvasWorldSpace
 				
 				for _, li in pairs(partManifold.lightSources) do
@@ -586,8 +662,11 @@ local function updateLitPartManifolds(litPartManifolds, onChange)
 					
 					accumulatedBrightness = (1 - accumulatedBrightness) + ambient + (brightness * (1 - (transparency) ))
 				end
+				
 				--print(accumulatedBrightness)
 				litPartManifolds[pi].canvasManifolds[ci].cover.BackgroundTransparency = accumulatedBrightness
+			else
+				litPartManifolds[pi].canvasManifolds[ci].cover.BackgroundTransparency = 1
 			end
 			
 			litPartManifolds[pi].canvasManifolds[ci].cover.BackgroundColor3 = shadowColor
@@ -635,6 +714,101 @@ function isOvereached(normal, highestPoint, lowestPoint, point)
 	if (xMet == true and yMet == true and zMet == true) then return true else return false end
 end
 
+function createShadowMesh_Global(shadowManifold, canvasManifold)
+	-- Clean up old Instances
+	for _, tri in pairs(shadowManifold.instanceStorage) do
+		tri:Destroy()
+	end
+	shadowManifold.instanceStorage = {}
+
+	-- Variables
+	local sid = canvasManifold.canvas.Face;
+	local lnormal = Vector3.FromNormalId(sid);
+	local normal = canvasManifold.part.CFrame:vectorToWorldSpace(lnormal);
+	local origin = canvasManifold.part.Position + normal * (lnormal * canvasManifold.part.Size/2).magnitude;
+	local tlc, size, right, down, modi = getTopLeft(canvasManifold.part, sid);
+	local noPos = false
+	--local lightPos = Shadow.AllLightSources[shadowManifold.li].part.Position
+
+	local points = {}
+	local pointCornerRef = {}
+
+	for _, corner in next, shadowManifold.corners do
+		local lightVector = Lighting:GetSunDirection()
+		local dot = normal:Dot(lightVector)
+
+		-- Only render shadows for surface if it can be seen from the light source
+		if dot >= 0 then -- CSMG
+			local pos = planeIntersect(corner, lightVector, origin, normal)
+			
+			--local ro = corner - (Lighting:GetSunDirection()*5)
+			--local pos = planeIntersect(ro, lightVector, origin, normal)
+			
+			--[[local elevDist = ((corner) - (origin))*normal
+			local pos = planeProject(corner + (lightVector * -elevDist.magnitude), lightVector, origin, normal)]]
+
+			if pos then 
+				noPos = true
+
+				local relative = pos - tlc.p;
+				local x, y = right:Dot(relative)/size.x, down:Dot(relative)/size.y;
+				x, y = modi < 1 and y or x, modi < 1 and x or y;
+
+				local csize = canvasManifold.canvas.CanvasSize;
+				local absPosition = Vector2.new(x * csize.x, y * csize.y);		
+
+				table.insert(points, absPosition);
+			end
+
+			table.insert(pointCornerRef, {corner, pos})
+		--[[else
+			local elevDist = ((corner) - (origin))*normal
+			local posProject = planeProject(corner + (lightVector * -elevDist.magnitude), lightVector, origin, normal)
+
+			local relative = posProject - tlc.p;
+			local x, y = right:Dot(relative)/size.x, down:Dot(relative)/size.y;
+			x, y = modi < 1 and y or x, modi < 1 and x or y;
+
+			local csize = canvasManifold.canvas.CanvasSize;
+			local absPosition = Vector2.new(x * csize.x, y * csize.y);		
+
+			table.insert(points, absPosition);]]
+		end
+	end;
+
+	if #points > 2 then	
+		local guiSize = canvasManifold.canvas.CanvasSize
+		local clippingRect = {
+			{guiSize.x, guiSize.y},
+			{guiSize.x, 0},
+			{0, 0},
+			{0, guiSize.y}
+		}
+
+		local newPoints = Hull.jarvis(points)
+		for i, np in pairs(newPoints) do
+			newPoints[i] = {np.x, np.y}
+		end
+		newPoints = Poly.clipAgainst(newPoints, clippingRect)
+
+		local finalTris = {}
+
+		if #newPoints > 0 then
+			finalTris = Poly.triangulate(newPoints)
+
+			for i, t in pairs(finalTris) do
+				if t[1] and t[2] and t[3] then
+					local ta, tb = Tris(canvasManifold.canvas, shadowColor, transparency, unpack(t))
+					table.insert(shadowManifold.instanceStorage, ta);
+					table.insert(shadowManifold.instanceStorage, tb);
+				end
+			end
+		end
+	end
+
+	return shadowManifold
+end
+
 function createShadowMesh(shadowManifold, canvasManifold)
 	-- Clean up old Instances
 	for _, tri in pairs(shadowManifold.instanceStorage) do
@@ -652,28 +826,7 @@ function createShadowMesh(shadowManifold, canvasManifold)
 	local lightPos = Shadow.AllLightSources[shadowManifold.li].part.Position
 	
 	local points = {}
-	
-	local overeach = false
-	if useExperimentalInstance.Value == true then
-		local highestPoint, lowestPoint
-		for _, corner in pairs(shadowManifold.corners) do
-			local cornerMultNorm = corner * normal
-			
-			if highestPoint and lowestPoint then
-				if cornerMultNorm.x > highestPoint.x or cornerMultNorm.y > highestPoint.y or cornerMultNorm.z > highestPoint.z then
-					highestPoint = cornerMultNorm
-				end
-				if cornerMultNorm.x < lowestPoint.x or cornerMultNorm.y < lowestPoint.y or cornerMultNorm.z < lowestPoint.z then
-					lowestPoint = cornerMultNorm
-				end
-			end
-			
-			if not highestPoint and not lowestPoint then
-				highestPoint, lowestPoint = cornerMultNorm, cornerMultNorm
-			end
-		end
-		overeach = isOvereached(normal, highestPoint, lowestPoint, lightPos)
-	end
+	local pointCornerRef = {}
 	
 	for _, corner in next, shadowManifold.corners do
 		local lightVector = (lightPos - corner).unit
@@ -681,8 +834,7 @@ function createShadowMesh(shadowManifold, canvasManifold)
 		
 		-- Only render shadows for surface if it can be seen from the light source
 		if dot >= 0 then
-			--local pos = planeProject(corner, lightVector, origin, normal, overeach)
-			local pos, pos2 = planeIntersect(corner, lightVector, origin, normal, overeach)
+			local pos = planeIntersect(corner, lightVector, origin, normal)
 			
 			if pos then 
 				noPos = true
@@ -693,23 +845,22 @@ function createShadowMesh(shadowManifold, canvasManifold)
 				
 				local csize = canvasManifold.canvas.CanvasSize;
 				local absPosition = Vector2.new(x * csize.x, y * csize.y);		
-				
+
 				table.insert(points, absPosition);
 			end
 			
-			if pos2 then 
-				noPos = true
+			table.insert(pointCornerRef, {corner, pos})
+		else
+			local posProject = planeProject(corner + lightVector * -99999, lightVector, origin, normal)
 				
-				local relative = pos2 - tlc.p;
-				local x, y = right:Dot(relative)/size.x, down:Dot(relative)/size.y;
-				x, y = modi < 1 and y or x, modi < 1 and x or y;
-				
-				local csize = canvasManifold.canvas.CanvasSize;
-				local absPosition = Vector2.new(x * csize.x, y * csize.y);		
-				
-				table.insert(points, absPosition);
-			end
+			local relative = posProject - tlc.p;
+			local x, y = right:Dot(relative)/size.x, down:Dot(relative)/size.y;
+			x, y = modi < 1 and y or x, modi < 1 and x or y;
 			
+			local csize = canvasManifold.canvas.CanvasSize;
+			local absPosition = Vector2.new(x * csize.x, y * csize.y);		
+			
+			table.insert(points, absPosition);
 		end
 	end;
 	
@@ -756,7 +907,12 @@ function Shadow.createAllShadowMeshes(rootManifolds)
 	for ci, canvasManifold in pairs(rootManifolds) do
 		for oi, occluderManifold in pairs(canvasManifold.occluderManifolds) do
 			for si, shadowManifold in pairs(occluderManifold.shadowManifolds) do
-				shadowManifold = createShadowMesh(shadowManifold, canvasManifold)
+				if localLightingEnabled == true then
+					shadowManifold = createShadowMesh(shadowManifold, canvasManifold)
+				end
+			end
+			if globalLightingEnabled == true then
+				createShadowMesh_Global(occluderManifold.globalShadowManifold, canvasManifold)
 			end
 		end
 	end
@@ -766,17 +922,7 @@ end
 local num1 = 0
 function Shadow.updateRootManifolds(rootManifolds)
 	-- Update the lighting value settings
-	if hasAmbientInstance.Value >= 0 then ambient = hasAmbientInstance.Value end
-	if hasShadowBrightnessInstance.Value >= 0 then transparency = hasShadowBrightnessInstance.Value end
-	shadowColor = hasShadowColorInstance.Value
-	
-	if useLightingProperties == true then
-		ambient = vec3(Lighting.Ambient.r, Lighting.Ambient.g, Lighting.Ambient.b) + vec3(Lighting.OutdoorAmbient.r, Lighting.OutdoorAmbient.g, Lighting.OutdoorAmbient.b)
-		transparency = math.min(math.min(Lighting.Brightness, 5), 1)
-		if shadowColorIsMemberOfLighting then
-			shadowColor = Lighting.ShadowColor
-		end
-	end
+	updateLighting()
 
 	-- Interate through manifolds
 	for ci, canvasManifold in pairs(rootManifolds) do
@@ -796,15 +942,31 @@ function Shadow.updateRootManifolds(rootManifolds)
 			
 			-- Remake the entire canvas manifold.
 			rootManifolds[ci] = newRootManifold(canvasManifold.canvas)
-			
+
 			-- Re-render shadows
 			for oi, occluderManifold in pairs(canvasManifold.occluderManifolds) do
-				for si, shadowManifold in pairs(occluderManifold.shadowManifolds) do
-					rootManifolds[ci].occluderManifolds[oi].shadowManifolds[si] = createShadowMesh(shadowManifold, canvasManifold)
+				if globalLightingEnabled == true then
+					if rootManifolds[ci].occluderManifolds[oi].occluder.Shape == Enum.PartType.Ball then
+						rootManifolds[ci].occluderManifolds[oi].globalShadowManifold.corners = getCornersSphere(rootManifolds[ci].occluderManifolds[oi].occluder, Lighting:GetSunDirection(), true)
+					else
+						rootManifolds[ci].occluderManifolds[oi].globalShadowManifold.corners = getCorners(rootManifolds[ci].occluderManifolds[oi].occluder, Lighting:GetSunDirection(), true)
+					end
+
+					rootManifolds[ci].occluderManifolds[oi].globalShadowManifold = createShadowMesh_Global(rootManifolds[ci].occluderManifolds[oi].globalShadowManifold, rootManifolds[ci])
 				end
+				
+				if localLightingEnabled == true then
+					for si, shadowManifold in pairs(occluderManifold.shadowManifolds) do
+						rootManifolds[ci].occluderManifolds[oi].shadowManifolds[si] = createShadowMesh(shadowManifold, canvasManifold)
+					end
+				end
+				
 			end
 		else
 			for oi, occluderManifold in pairs(canvasManifold.occluderManifolds) do
+				local globalShadowMeshUpdated = false
+				local localShadowMeshUpdated = false
+				
 				-- Re-compute ALL shadow manifolds if the occluder has changed position or rotation.
 				if occluderManifold.occluder.CFrame ~= occluderManifold.occluderCF then
 					occluderManifold.occluderCF = occluderManifold.occluder.CFrame
@@ -831,22 +993,51 @@ function Shadow.updateRootManifolds(rootManifolds)
 						shadowManifold.instanceStorage = {}
 						table.insert(occluderManifold.shadowManifolds, shadowManifold)
 					end]]
-					local lightSources = getNearbyLightSources(occluderManifold.occluder.Position)
-			
-					for _, li in pairs(lightSources) do
-						local shadowManifold = {}
-						shadowManifold.li = li
-						shadowManifold.brightness = 1
-						shadowManifold.corners = getCorners(occluderManifold.occluder, Shadow.AllLightSources[li].part.Position)
-						shadowManifold.instanceStorage = {}
+					
+					if localLightingEnabled == true and localShadowMeshUpdated == false then
+						localShadowMeshUpdated = true
 						
-						-- Apply current SM to shadowManifolds
-						table.insert(occluderManifold.shadowManifolds, shadowManifold)
+						local lightSources = getNearbyLightSources(occluderManifold.occluder.Position)
+				
+						for _, li in pairs(lightSources) do
+							local shadowManifold = {}
+							shadowManifold.li = li
+							shadowManifold.brightness = 1
+							if occluderManifold.occluder.Shape == Enum.PartType.Ball then
+								shadowManifold.corners = getCornersSphere(occluderManifold.occluder, Shadow.AllLightSources[shadowManifold.li].part.Position)
+							else
+								shadowManifold.corners = getCorners(occluderManifold.occluder, Shadow.AllLightSources[shadowManifold.li].part.Position)
+							end
+							shadowManifold.instanceStorage = {}
+							
+							-- Apply current SM to shadowManifolds
+							table.insert(occluderManifold.shadowManifolds, shadowManifold)
+						end
+						
+						-- Re-render shadows
+						for si, shadowManifold in pairs(occluderManifold.shadowManifolds) do
+							shadowManifold = createShadowMesh(shadowManifold, canvasManifold)
+						end
 					end
 					
-					-- Re-render shadows
-					for si, shadowManifold in pairs(occluderManifold.shadowManifolds) do
-						shadowManifold = createShadowMesh(shadowManifold, canvasManifold)
+					-- Re-render global shadows
+					if globalShadowMeshUpdated == false then
+						globalShadowMeshUpdated = true
+
+						if globalLightingEnabled == true then
+							if rootManifolds[ci].occluderManifolds[oi].occluder.Shape == Enum.PartType.Ball then
+								rootManifolds[ci].occluderManifolds[oi].globalShadowManifold.corners = getCornersSphere(rootManifolds[ci].occluderManifolds[oi].occluder, Lighting:GetSunDirection(), true)
+							else
+								rootManifolds[ci].occluderManifolds[oi].globalShadowManifold.corners = getCorners(rootManifolds[ci].occluderManifolds[oi].occluder, Lighting:GetSunDirection(), true)
+							end
+
+							rootManifolds[ci].occluderManifolds[oi].globalShadowManifold = createShadowMesh_Global(rootManifolds[ci].occluderManifolds[oi].globalShadowManifold, canvasManifold)
+						else
+							for _, item in pairs(rootManifolds[ci].occluderManifolds[oi].globalShadowManifold.instanceStorage) do
+								if item then item:Destroy() end
+							end
+							rootManifolds[ci].occluderManifolds[oi].globalShadowManifold.instanceStorage = {}
+						end
 					end
 				end
 				
@@ -862,16 +1053,75 @@ function Shadow.updateRootManifolds(rootManifolds)
 						end 
 						shadowManifold.instanceStorage = {}
 						
-						--[[ Update shadow manifold variables
-						shadowManifold.lightPos = shadowManifold.lightPart.Position]]
-						shadowManifold.corners = getCorners(occluderManifold.occluder, Shadow.AllLightSources[shadowManifold.li].pos)
-						shadowManifold.instanceStorage = {}
+						if localLightingEnabled == true and localShadowMeshUpdated == false then
+							localShadowMeshUpdated = true
+							--[[ Update shadow manifold variables
+							shadowManifold.lightPos = shadowManifold.lightPart.Position]]
+							--shadowManifold.corners = getCorners(occluderManifold.occluder, Shadow.AllLightSources[shadowManifold.li].pos)
+							if occluderManifold.occluder.Shape == Enum.PartType.Ball then
+								shadowManifold.corners = getCornersSphere(occluderManifold.occluder, Shadow.AllLightSources[shadowManifold.li].part.Position)
+							else
+								shadowManifold.corners = getCorners(occluderManifold.occluder, Shadow.AllLightSources[shadowManifold.li].part.Position)
+							end
+							shadowManifold.instanceStorage = {}
+							
+							-- Re-render shadow for specific manifold
+							shadowManifold = createShadowMesh(shadowManifold, canvasManifold)
+							
+							-- Apply shadow manifold
+							occluderManifold.shadowManifolds[si] = shadowManifold
+						end
+					end
+					
+					
+					-- Update shadows if light enabled/disabled
+					if localUpdateNeeded == true then
+						localShadowMeshUpdated = true
 						
-						-- Re-render shadow for specific manifold
-						shadowManifold = createShadowMesh(shadowManifold, canvasManifold)
-						
-						-- Apply shadow manifold
-						occluderManifold.shadowManifolds[si] = shadowManifold
+						if localLightingEnabled == true then
+							-- Delete old instance storage
+							for _, instance in pairs(shadowManifold.instanceStorage) do
+								instance:Destroy()
+							end 
+							shadowManifold.instanceStorage = {}
+
+							if occluderManifold.occluder.Shape == Enum.PartType.Ball then
+								shadowManifold.corners = getCornersSphere(occluderManifold.occluder, Shadow.AllLightSources[shadowManifold.li].part.Position)
+							else
+								shadowManifold.corners = getCorners(occluderManifold.occluder, Shadow.AllLightSources[shadowManifold.li].part.Position)
+							end
+							shadowManifold.instanceStorage = {}
+
+							-- Re-render shadow for specific manifold
+							shadowManifold = createShadowMesh(shadowManifold, canvasManifold)
+
+							-- Apply shadow manifold
+							occluderManifold.shadowManifolds[si] = shadowManifold
+						else
+							for _, instance in pairs(shadowManifold.instanceStorage) do
+								instance:Destroy()
+							end 
+							shadowManifold.instanceStorage = {}
+						end
+					end
+					
+				end
+				
+				-- Check if sun dir changed or sun deleted
+				if sunUpdateNeeded == true then
+					if globalLightingEnabled == true then
+						if rootManifolds[ci].occluderManifolds[oi].occluder.Shape == Enum.PartType.Ball then
+							rootManifolds[ci].occluderManifolds[oi].globalShadowManifold.corners = getCornersSphere(rootManifolds[ci].occluderManifolds[oi].occluder, Lighting:GetSunDirection(), true)
+						else
+							rootManifolds[ci].occluderManifolds[oi].globalShadowManifold.corners = getCorners(rootManifolds[ci].occluderManifolds[oi].occluder, Lighting:GetSunDirection(), true)
+						end
+
+						rootManifolds[ci].occluderManifolds[oi].globalShadowManifold = createShadowMesh_Global(rootManifolds[ci].occluderManifolds[oi].globalShadowManifold, canvasManifold)
+					else
+						for _, item in pairs(rootManifolds[ci].occluderManifolds[oi].globalShadowManifold.instanceStorage) do
+							if item then item:Destroy() end
+						end
+						rootManifolds[ci].occluderManifolds[oi].globalShadowManifold.instanceStorage = {}
 					end
 				end
 				
@@ -881,6 +1131,8 @@ function Shadow.updateRootManifolds(rootManifolds)
 		end
 	end
 	
+	prevSunDir = Lighting:GetSunDirection()
+		
 	return rootManifolds
 end
 
@@ -937,32 +1189,32 @@ function Shadow.setPartProperty(part, property, bool)
 				if property == "isShadowCanvasAll" then
 					for face, vec in pairs(lefts) do
 						local relativeGui = scanForSurfaceGuiSide(part, face)
-						if relativeGui then relativeGui.Value = bool else newFuncSurfaceGui(part, face, bool) end
+						if relativeGui then --[[relativeGui.Value = bool]] else newFuncSurfaceGui(part, face, bool) end
 					end
 				elseif property == "isShadowCanvasTop" then
 					local face = Enum.NormalId.Top
 					local relativeGui = scanForSurfaceGuiSide(part, face)
-					if relativeGui then relativeGui.Value = bool else newFuncSurfaceGui(part, face, bool) end
+					if relativeGui then --[[relativeGui.Value = bool]] else newFuncSurfaceGui(part, face, bool) end
 				elseif property == "isShadowCanvasBottom" then
 					local face = Enum.NormalId.Bottom
 					local relativeGui = scanForSurfaceGuiSide(part, face)
-					if relativeGui then relativeGui.Value = bool else newFuncSurfaceGui(part, face, bool) end
+					if relativeGui then --[[relativeGui.Value = bool]] else newFuncSurfaceGui(part, face, bool) end
 				elseif property == "isShadowCanvasRight" then
 					local face = Enum.NormalId.Right
 					local relativeGui = scanForSurfaceGuiSide(part, face)
-					if relativeGui then relativeGui.Value = bool else newFuncSurfaceGui(part, face, bool) end
+					if relativeGui then --[[relativeGui.Value = bool]] else newFuncSurfaceGui(part, face, bool) end
 				elseif property == "isShadowCanvasLeft" then
 					local face = Enum.NormalId.Left
 					local relativeGui = scanForSurfaceGuiSide(part, face)
-					if relativeGui then relativeGui.Value = bool else newFuncSurfaceGui(part, face, bool) end
+					if relativeGui then --[[relativeGui.Value = bool]] else newFuncSurfaceGui(part, face, bool) end
 				elseif property == "isShadowCanvasFront" then
 					local face = Enum.NormalId.Front
 					local relativeGui = scanForSurfaceGuiSide(part, face)
-					if relativeGui then relativeGui.Value = bool else newFuncSurfaceGui(part, face, bool) end
+					if relativeGui then --[[relativeGui.Value = bool]] else newFuncSurfaceGui(part, face, bool) end
 				elseif property == "isShadowCanvasBack" then
 					local face = Enum.NormalId.Back
 					local relativeGui = scanForSurfaceGuiSide(part, face)
-					if relativeGui then relativeGui.Value = bool else newFuncSurfaceGui(part, face, bool) end
+					if relativeGui then --[[relativeGui.Value = bool]] else newFuncSurfaceGui(part, face, bool) end
 				end
 			end
 		end
